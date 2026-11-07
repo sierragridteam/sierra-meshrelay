@@ -1,6 +1,6 @@
 # SIERRA Mesh Relay — Wire Protocol v1
 
-*The canonical spec. The relay, the bridge, and client libraries all implement this. It lives in [dpup/sierra-meshrelay](https://github.com/dpup/sierra-meshrelay) alongside the relay, the bridge and the Go types (package `meshproto`); other repos link here instead of keeping a copy. Change the spec, the types and both implementations in the same pull request.*
+*The canonical spec. The relay, the bridge, and client libraries all implement this. It lives in [sierragridteam/sierra-meshrelay](https://github.com/sierragridteam/sierra-meshrelay) alongside the relay, the bridge and the Go types (package `meshproto`); other repos link here instead of keeping a copy. Change the spec, the types and both implementations in the same pull request.*
 
 ## Implementations
 
@@ -182,7 +182,7 @@ The bridge closes and reopens its connection to the node, then re-runs the ident
 ### `update_available` (relay → bridge, optional)
 
 ```json
-{ "type": "update_available", "version": "v0.7.0", "url": "https://github.com/dpup/sierra-meshrelay/releases/download/v0.7.0", "sha256": "", "sig": "" }
+{ "type": "update_available", "version": "v0.7.0", "url": "https://github.com/sierragridteam/sierra-meshrelay/releases/download/v0.7.0", "sha256": "", "sig": "" }
 ```
 
 The relay offers the release an admin chose (`PUT /bridge-update`) to each bridge running something else, when it connects and when the choice changes. `url` is the release's download directory. The relay doesn't vouch for it: the bridge downloads `SHA256SUMS` and `SHA256SUMS.sig` from there and installs only if the signature verifies against a release key built into the bridge, and the archive for its platform matches. The signature is ed25519 over `meshbridge release <version>\n` followed by `SHA256SUMS`, base64. `sha256` and `sig` are unused (empty).

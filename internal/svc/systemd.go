@@ -37,7 +37,7 @@ func Unit(binary, configPath string) string {
 	return fmt.Sprintf(`# Installed by "meshbridge install". Reinstall to update; "meshbridge uninstall" to remove.
 [Unit]
 Description=SIERRA mesh bridge (MeshCore node to the SIERRA Mesh Relay)
-Documentation=https://github.com/dpup/sierra-meshrelay
+Documentation=https://github.com/sierragridteam/sierra-meshrelay
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=0

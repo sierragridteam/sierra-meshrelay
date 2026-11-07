@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 // DefaultReleaseBaseURL is where bridge releases are downloaded from:
 // <base>/<version>/SHA256SUMS etc.
-const DefaultReleaseBaseURL = "https://github.com/dpup/sierra-meshrelay/releases/download"
+const DefaultReleaseBaseURL = "https://github.com/sierragridteam/sierra-meshrelay/releases/download"
 
 // BridgeUpdate is the release bridges should run.
 type BridgeUpdate struct {

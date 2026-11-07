@@ -3,7 +3,7 @@
 # verifies its checksum, pairs it with SIERRA and installs the systemd
 # service. Run it again to upgrade (an already-paired bridge skips pairing).
 #
-#   curl -fsSL https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --passphrase "maple river quartz otter"
 #
 # Options:
@@ -23,7 +23,7 @@
 set -eu
 
 main() {
-	base_url="https://github.com/dpup/sierra-meshrelay/releases"
+	base_url="https://github.com/sierragridteam/sierra-meshrelay/releases"
 	version=latest
 	bin_dir=/usr/local/bin
 	config=/etc/meshbridge/meshbridge.toml
@@ -41,12 +41,12 @@ main() {
 		--bin-dir) need_arg "$@"; bin_dir=$2; shift 2 ;;
 		--base-url) need_arg "$@"; base_url=$2; shift 2 ;;
 		--no-service) service=no; shift ;;
-		-h | --help) sed -n '2,20p' "$0" 2>/dev/null || echo "see https://github.com/dpup/sierra-meshrelay/blob/main/docs/linux.md"; exit 0 ;;
+		-h | --help) sed -n '2,20p' "$0" 2>/dev/null || echo "see https://github.com/sierragridteam/sierra-meshrelay/blob/main/docs/linux.md"; exit 0 ;;
 		*) fail "unknown option: $1" ;;
 		esac
 	done
 
-	[ "$(uname -s)" = Linux ] || fail "this installer is for Linux. See https://github.com/dpup/sierra-meshrelay for other systems."
+	[ "$(uname -s)" = Linux ] || fail "this installer is for Linux. See https://github.com/sierragridteam/sierra-meshrelay for other systems."
 	case "$(uname -m)" in
 	x86_64 | amd64) arch=amd64 ;;
 	aarch64 | arm64) arch=arm64 ;;
