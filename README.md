@@ -16,13 +16,13 @@ A host needs an always-on computer on the same network as a WiFi or Ethernet Mes
 **Linux** (x86-64, arm64 or Raspberry Pi):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.sh | sh -s -- --passphrase "maple river quartz otter"
+curl -fsSL https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.sh | sh -s -- --passphrase "maple river quartz otter"
 ```
 
 **Windows 10 or 11**, from an elevated PowerShell (right-click PowerShell, **Run as administrator**), or over SSH as an administrator:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "maple river quartz otter"
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "maple river quartz otter"
 ```
 
 The installer:
@@ -106,7 +106,7 @@ What to do with a node belongs to the service that uses it. The relay provides t
 - a check of a shared repeater (`CheckRepeater`),
 - records of every check.
 
-For the Grid, the telemetry poller lives in [dpup/sierra-data](https://github.com/dpup/sierra-data) (`internal/relaytelemetry`). It decides:
+For the Grid, the telemetry poller lives in [sierragridteam/sierra-data](https://github.com/sierragridteam/sierra-data) (`internal/relaytelemetry`). It decides:
 - when to read each repeater,
 - which gateway to use,
 - how to retry and fail over,
@@ -292,7 +292,7 @@ Without a radio, run `./bin/fakenode -listen 127.0.0.1:5000` and point `tcp_host
 
 ### Where the relay runs
 
-`relay/` is a library. The deployed relay is `cmd/mesh-relay` in [dpup/sierra-data](https://github.com/dpup/sierra-data). It imports this module and adds:
+`relay/` is a library. The deployed relay is `cmd/mesh-relay` in [sierragridteam/sierra-data](https://github.com/sierragridteam/sierra-data). It imports this module and adds:
 - sierra-data's config,
 - its deploy handoff (passed in as `relay.Config.Gate`),
 - the Grid telemetry poller,

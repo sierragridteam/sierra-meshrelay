@@ -1,6 +1,6 @@
 # Handoff: SIERRA Mesh Relay (data server)
 
-*The relay's service spec and design decisions. Read the wire spec first: [PROTOCOL.md](../PROTOCOL.md). The relay's code is the `relay` package in this repo. The deployed binary (`cmd/mesh-relay`), its `prefab.yaml` config, and the deploy pipeline live in [dpup/sierra-data](https://github.com/dpup/sierra-data), so references below to `prefab.yaml`, `make relay-token`, `make ecs-deploy` and `deploy-handoff.md` are about that repo.*
+*The relay's service spec and design decisions. Read the wire spec first: [PROTOCOL.md](../PROTOCOL.md). The relay's code is the `relay` package in this repo. The deployed binary (`cmd/mesh-relay`), its `prefab.yaml` config, and the deploy pipeline live in [sierragridteam/sierra-data](https://github.com/sierragridteam/sierra-data), so references below to `prefab.yaml`, `make relay-token`, `make ecs-deploy` and `deploy-handoff.md` are about that repo.*
 
 ## What we're building
 

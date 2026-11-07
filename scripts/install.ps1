@@ -4,11 +4,11 @@
 # Run it from an elevated PowerShell (Run as administrator), or over SSH as
 # an administrator.
 #
-#   irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1 | iex
 #
 # With options:
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "maple river quartz otter"
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "maple river quartz otter"
 #
 # Options:
 #   -Passphrase WORDS   pair with the passphrase from your SIERRA contact
@@ -37,7 +37,7 @@ param(
 	[string]$Relay = "",
 	[string]$Config = "",
 	[string]$InstallDir = "",
-	[string]$BaseUrl = "https://github.com/dpup/sierra-meshrelay/releases",
+	[string]$BaseUrl = "https://github.com/sierragridteam/sierra-meshrelay/releases",
 	[switch]$NoPath
 )
 

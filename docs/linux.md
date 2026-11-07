@@ -5,7 +5,7 @@ This runs a long-lived bridge as a systemd service on any Linux machine on the s
 ## Quick install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.sh | sh
 ```
 
 This does steps 1–3 below in one go:
@@ -32,7 +32,7 @@ To do it step by step instead:
 ## 1. Download
 
 ```sh
-curl -LO https://github.com/dpup/sierra-meshrelay/releases/latest/download/meshbridge_linux_amd64.tar.gz
+curl -LO https://github.com/sierragridteam/sierra-meshrelay/releases/latest/download/meshbridge_linux_amd64.tar.gz
 tar xzf meshbridge_linux_amd64.tar.gz
 ./meshbridge version
 ```

@@ -236,14 +236,14 @@ func (c *Client) Gateways(ctx context.Context) ([]Gateway, error) {
 
 // InstallOneLiner is the Linux install command for a passphrase.
 func InstallOneLiner(passphrase string) string {
-	return `curl -fsSL https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.sh | sh -s -- --passphrase "` +
+	return `curl -fsSL https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.sh | sh -s -- --passphrase "` +
 		strings.ReplaceAll(passphrase, "-", " ") + `"`
 }
 
 // InstallOneLinerWindows is the Windows (PowerShell) install command for a
 // passphrase.
 func InstallOneLinerWindows(passphrase string) string {
-	return `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "` +
+	return `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "` +
 		strings.ReplaceAll(passphrase, "-", " ") + `"`
 }
 

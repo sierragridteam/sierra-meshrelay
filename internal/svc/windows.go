@@ -42,7 +42,7 @@ func Supported() error {
 func serviceConfig() mgr.Config {
 	return mgr.Config{
 		DisplayName:      "SIERRA mesh bridge",
-		Description:      "Connects a MeshCore companion node to the SIERRA Mesh Relay. https://github.com/dpup/sierra-meshrelay",
+		Description:      "Connects a MeshCore companion node to the SIERRA Mesh Relay. https://github.com/sierragridteam/sierra-meshrelay",
 		StartType:        mgr.StartAutomatic,
 		DelayedAutoStart: true,
 		ErrorControl:     mgr.ErrorNormal,

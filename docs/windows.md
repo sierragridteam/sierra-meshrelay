@@ -7,7 +7,7 @@ This runs a long-lived bridge as a Windows service on any Windows 10 or 11 PC (x
 From an elevated PowerShell (right-click PowerShell, **Run as administrator**):
 
 ```powershell
-irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1 | iex
 ```
 
 This does steps 1–3 below in one go:
@@ -21,7 +21,7 @@ Read the script first if you like ([scripts/install.ps1](../scripts/install.ps1)
 To pass options, run the script as a script block:
 
 ```powershell
-$mb = [scriptblock]::Create((irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1))
+$mb = [scriptblock]::Create((irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1))
 & $mb -Passphrase "maple river quartz otter"   # pre-approved; no prompts
 & $mb -NodeHost 192.168.1.50                   # node on another subnet
 & $mb -Version v0.6.0                          # a specific release
@@ -33,14 +33,14 @@ $mb = [scriptblock]::Create((irm https://raw.githubusercontent.com/dpup/sierra-m
 Windows' OpenSSH server gives an administrator an elevated session, so the install works over SSH with no UAC prompt. Its default shell is `cmd`, so start PowerShell for it:
 
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dpup/sierra-meshrelay/main/scripts/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1 | iex"
 ```
 
 Connect with a terminal (`ssh` does this by default) so setup can ask for the passphrase, or pass `-Passphrase` and nobody needs to answer anything.
 
 ## 1. Download
 
-Download `meshbridge_windows_amd64.zip` (or `meshbridge_windows_arm64.zip` on an ARM PC) from the [latest release](https://github.com/dpup/sierra-meshrelay/releases/latest) and extract it. Checksums are in `SHA256SUMS` on the same release.
+Download `meshbridge_windows_amd64.zip` (or `meshbridge_windows_arm64.zip` on an ARM PC) from the [latest release](https://github.com/sierragridteam/sierra-meshrelay/releases/latest) and extract it. Checksums are in `SHA256SUMS` on the same release.
 
 ## 2. Pair with SIERRA
 
