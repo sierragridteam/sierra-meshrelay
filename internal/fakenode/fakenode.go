@@ -15,8 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/dpup/sierra-meshrelay/internal/companion"
-	"github.com/dpup/sierra-meshrelay/meshops/meshsim"
+	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
+	"github.com/sierragridteam/sierra-meshrelay/meshops/meshsim"
 )
 
 // EchoPrefix is prepended to echoed frames.

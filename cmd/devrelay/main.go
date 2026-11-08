@@ -22,7 +22,7 @@ import (
 	"github.com/dpup/prefab"
 	"github.com/dpup/prefab/logging"
 
-	"github.com/dpup/sierra-meshrelay/relay"
+	"github.com/sierragridteam/sierra-meshrelay/relay"
 )
 
 func main() {

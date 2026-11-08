@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/diaglog"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/diaglog"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
 )
 
 // TestBridgeLogsReachAdmins: lines the bridge logs (including while it

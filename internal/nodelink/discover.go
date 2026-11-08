@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/companion"
-	"github.com/dpup/sierra-meshrelay/internal/state"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
+	"github.com/sierragridteam/sierra-meshrelay/internal/state"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // A WiFi companion node gets its address by DHCP, so the address in the

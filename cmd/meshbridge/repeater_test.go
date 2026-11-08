@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
 )
 
 func nearby(names ...string) []admin.NearbyRepeater {

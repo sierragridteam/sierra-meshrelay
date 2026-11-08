@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // Errors a host may see, each with a plain explanation.

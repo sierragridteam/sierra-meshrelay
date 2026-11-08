@@ -12,7 +12,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/meshops"
+	"github.com/sierragridteam/sierra-meshrelay/meshops"
 )
 
 const repeaterPollSchema = `

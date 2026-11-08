@@ -12,9 +12,10 @@ test:
 	go test -race ./...
 
 # Runs against the production relay on the bridge-dev-sim gateway with a fake
-# node. Needs .envrc (RELAY, SIM_BRIDGE_TOKEN, CLIENT_TOKEN; ADMIN optional).
+# node. Uses the parent workspace .envrc through direnv
+# (RELAY, SIM_BRIDGE_TOKEN, CLIENT_TOKEN; ADMIN optional).
 test-live:
-	set -a && . ./.envrc && set +a && MESHBRIDGE_LIVE=1 go test -race -count=1 -v ./e2e/
+	direnv exec . env MESHBRIDGE_LIVE=1 go test -race -count=1 -v ./e2e/
 
 lint:
 	test -z "$$(gofmt -l .)"

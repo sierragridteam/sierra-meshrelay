@@ -31,9 +31,9 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	msvc "github.com/dpup/sierra-meshrelay/internal/svc"
-	"github.com/dpup/sierra-meshrelay/internal/update"
-	"github.com/dpup/sierra-meshrelay/relay"
+	msvc "github.com/sierragridteam/sierra-meshrelay/internal/svc"
+	"github.com/sierragridteam/sierra-meshrelay/internal/update"
+	"github.com/sierragridteam/sierra-meshrelay/relay"
 )
 
 func requireAdmin(t *testing.T) {
@@ -76,7 +76,7 @@ func winBuild(t *testing.T, out, version string) {
 	t.Helper()
 	pub := base64.StdEncoding.EncodeToString(winTestKey.Public().(ed25519.PublicKey))
 	build := exec.Command("go", "build", "-ldflags", "-X main.version="+version+
-		" -X github.com/dpup/sierra-meshrelay/internal/update.extraKey="+pub, "-o", out, "./cmd/meshbridge")
+		" -X github.com/sierragridteam/sierra-meshrelay/internal/update.extraKey="+pub, "-o", out, "./cmd/meshbridge")
 	build.Dir = ".."
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if b, err := build.CombinedOutput(); err != nil {

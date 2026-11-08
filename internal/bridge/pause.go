@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/state"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/state"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // Pausing is the host's right. A paused bridge closes its node link, which

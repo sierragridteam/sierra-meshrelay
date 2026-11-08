@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
-	"github.com/dpup/sierra-meshrelay/internal/state"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/state"
 )
 
 func TestSubnetHosts(t *testing.T) {

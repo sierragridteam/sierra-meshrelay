@@ -47,7 +47,7 @@ import (
 const releaseKey = "NEx/iDcd5IM0UvKFJUc8BM0n4N1LzmU2RZ3TM0SdLPE="
 
 // extraKey adds a trusted key at build time, for tests only:
-// -ldflags "-X github.com/dpup/sierra-meshrelay/internal/update.extraKey=…".
+// -ldflags "-X github.com/sierragridteam/sierra-meshrelay/internal/update.extraKey=…".
 var extraKey string
 
 // TrustedKeys are the keys a release signature may verify against.

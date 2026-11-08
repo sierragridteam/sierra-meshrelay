@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/pairing"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/pairing"
 )
 
 func adminClient(lr *localRelay) *admin.Client {

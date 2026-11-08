@@ -16,4 +16,4 @@ Releases are signed in CI (`cmd/signrelease`, secret `MESHBRIDGE_RELEASE_SIGNING
 
 ## Changes that touch the relay
 
-The relay library is deployed by `dpup/sierra-data` (`cmd/mesh-relay`), which deploys from its `main`. Ship a relay change by tagging a release here, then bumping `github.com/dpup/sierra-meshrelay` in sierra-data through a pull request. Never push to sierra-data's `main`.
+The relay library is deployed by `sierragridteam/sierra-data` (`cmd/mesh-relay`), which deploys from its `main`. Ship a relay change by tagging a release here, then bumping `github.com/sierragridteam/sierra-meshrelay` in sierra-data through a pull request. Never push to sierra-data's `main`.

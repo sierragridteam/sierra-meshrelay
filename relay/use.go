@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dpup/sierra-meshrelay/meshops"
+	"github.com/sierragridteam/sierra-meshrelay/meshops"
 )
 
 // sessionHolder is a LeaseHolder that feeds a meshops.Session.

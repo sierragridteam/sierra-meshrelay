@@ -1,7 +1,7 @@
 // Package e2e runs the bridge against the live SIERRA Mesh Relay.
 //
 // These tests are skipped unless MESHBRIDGE_LIVE=1. They read credentials from
-// the environment (source .envrc):
+// the environment (loaded by direnv from the parent workspace):
 //
 //	RELAY             relay API base, e.g. https://data.sierragridteam.org/mesh/relay/api
 //	SIM_BRIDGE_NAME   gateway for the fake node (default bridge-dev-sim)
@@ -28,14 +28,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/companion"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/connect"
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
-	"github.com/dpup/sierra-meshrelay/internal/relayclient"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/connect"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/relayclient"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // simNodeName seeds the fake node's pubkey. Keep it stable: the relay pinned
@@ -49,7 +49,7 @@ type env struct {
 func liveEnv(t *testing.T) env {
 	t.Helper()
 	if os.Getenv("MESHBRIDGE_LIVE") != "1" {
-		t.Skip("set MESHBRIDGE_LIVE=1 (and source .envrc) to run live relay tests")
+		t.Skip("set MESHBRIDGE_LIVE=1 (with the parent workspace environment loaded) to run live relay tests")
 	}
 	e := env{
 		api:         strings.TrimRight(os.Getenv("RELAY"), "/"),

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/meshops"
-	"github.com/dpup/sierra-meshrelay/meshops/meshsim"
+	"github.com/sierragridteam/sierra-meshrelay/meshops"
+	"github.com/sierragridteam/sierra-meshrelay/meshops/meshsim"
 )
 
 func pk(c byte) string { return strings.Repeat(string("0123456789abcdef"[c%16]), 64) }

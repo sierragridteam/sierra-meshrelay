@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/companion"
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
 )
 
 func TestEncode(t *testing.T) {

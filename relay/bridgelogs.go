@@ -15,7 +15,7 @@ import (
 	"github.com/dpup/prefab/errors"
 	"google.golang.org/grpc/codes"
 
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 const bridgeLogSchema = `

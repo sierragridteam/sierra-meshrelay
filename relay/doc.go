@@ -11,7 +11,7 @@
 // anything here.
 //
 // This package is a library. The deployed binary (cmd/mesh-relay) lives in
-// github.com/dpup/sierra-data, which wires it into prefab, its config and its
+// github.com/sierragridteam/sierra-data, which wires it into prefab, its config and its
 // deploy handoff (passed in as Config.Gate). The e2e tests in this repo run
 // it in process against the real bridge.
 //

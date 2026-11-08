@@ -19,15 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/connect"
-	"github.com/dpup/sierra-meshrelay/internal/control"
-	"github.com/dpup/sierra-meshrelay/internal/diaglog"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
-	"github.com/dpup/sierra-meshrelay/internal/relayclient"
-	"github.com/dpup/sierra-meshrelay/internal/state"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/connect"
+	"github.com/sierragridteam/sierra-meshrelay/internal/control"
+	"github.com/sierragridteam/sierra-meshrelay/internal/diaglog"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/relayclient"
+	"github.com/sierragridteam/sierra-meshrelay/internal/state"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // version is set at build time with -ldflags "-X main.version=…".

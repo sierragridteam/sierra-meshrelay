@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dpup/sierra-meshrelay/internal/update"
+	"github.com/sierragridteam/sierra-meshrelay/internal/update"
 )
 
 func main() {

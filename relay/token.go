@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // Token prefixes make a leaked token recognizable (and greppable by secret

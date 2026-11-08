@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
-	"github.com/dpup/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
 )
 
 const repeaterUsage = `meshbridge repeater: share your MeshCore repeaters with SIERRA.

@@ -13,8 +13,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
-	"github.com/dpup/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
 )
 
 const adminUsage = `meshbridge admin: manage SIERRA pairing (needs an admin token).

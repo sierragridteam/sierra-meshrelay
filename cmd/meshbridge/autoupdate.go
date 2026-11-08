@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/update"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/update"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // autoUpdater acts on the relay's update_available: it downloads and

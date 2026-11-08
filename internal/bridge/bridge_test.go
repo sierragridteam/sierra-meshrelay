@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
-	"github.com/dpup/sierra-meshrelay/internal/relaytest"
-	statefile "github.com/dpup/sierra-meshrelay/internal/state"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/relaytest"
+	statefile "github.com/sierragridteam/sierra-meshrelay/internal/state"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 const token = "smb_test-token"

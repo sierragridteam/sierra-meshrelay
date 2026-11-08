@@ -15,10 +15,10 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/logfile"
-	msvc "github.com/dpup/sierra-meshrelay/internal/svc"
-	"github.com/dpup/sierra-meshrelay/internal/update"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/logfile"
+	msvc "github.com/sierragridteam/sierra-meshrelay/internal/svc"
+	"github.com/sierragridteam/sierra-meshrelay/internal/update"
 )
 
 // LogFile is the service's log, beside its config.
