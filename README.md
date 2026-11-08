@@ -300,7 +300,7 @@ Without a radio, run `./bin/fakenode -listen 127.0.0.1:5000` and point `tcp_host
 
 To ship a relay change:
 1. Merge it here and tag a release.
-2. Bump `github.com/dpup/sierra-meshrelay` in sierra-data through a pull request.
+2. Bump `github.com/sierragridteam/sierra-meshrelay` in sierra-data through a pull request.
 3. Deploy sierra-data.
 
 ### Testing
@@ -308,7 +308,7 @@ To ship a relay change:
 | Command | What it runs | Needs |
 |---|---|---|
 | `make test` | Every package's tests, plus the `e2e/` tests that run the real relay and real bridge in one process, with a fake node and a TCP client through `connect`. They cover the full chain, throttling, pinning, leases and preemption, pause, pairing, invites, updates and shared repeaters. | Nothing |
-| `make test-live` | The real bridge and a fake node against the **production** relay on `bridge-dev-sim`: leases, round trips, a 300-frame burst, renew, busy, and the chain through `connect`. | `.envrc` with `RELAY`, `SIM_BRIDGE_TOKEN`, `CLIENT_TOKEN` |
+| `make test-live` | The real bridge and a fake node against the **production** relay on `bridge-dev-sim`: leases, round trips, a 300-frame burst, renew, busy, and the chain through `connect`. | Parent workspace `.envrc` (loaded by direnv) with `RELAY`, `SIM_BRIDGE_TOKEN`, `CLIENT_TOKEN` |
 | ↳ admin checks | Relink via the admin API | `ADMIN` too; these skip without it |
 
 Windows CI also runs the install script, the Windows service and a signed auto-update end to end.

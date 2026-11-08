@@ -22,15 +22,15 @@ import (
 	"github.com/dpup/prefab"
 	"github.com/dpup/prefab/logging"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/companion"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/connect"
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
-	"github.com/dpup/sierra-meshrelay/internal/relayclient"
-	"github.com/dpup/sierra-meshrelay/meshproto"
-	"github.com/dpup/sierra-meshrelay/relay"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/connect"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/relayclient"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/relay"
 )
 
 // localRelay is a real relay on a loopback port.

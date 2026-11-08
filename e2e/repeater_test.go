@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
-	"github.com/dpup/sierra-meshrelay/meshops"
-	"github.com/dpup/sierra-meshrelay/meshops/meshsim"
-	"github.com/dpup/sierra-meshrelay/relay"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/meshops"
+	"github.com/sierragridteam/sierra-meshrelay/meshops/meshsim"
+	"github.com/sierragridteam/sierra-meshrelay/relay"
 )
 
 func withSecretKey(c *relay.Config) {

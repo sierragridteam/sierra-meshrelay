@@ -3,7 +3,7 @@ package relay
 import (
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // The wire protocol's types and constants live in the shared module

@@ -6,7 +6,7 @@
 
 | Component | Language | Repo | Role |
 |---|---|---|---|
-| **Relay** | Go | `dpup/sierra-meshrelay` (`relay/`), deployed by `dpup/sierra-data` | Accepts bridges and clients, leases, pairing, admin API |
+| **Relay** | Go | `dpup/sierra-meshrelay` (`relay/`), deployed by `sierragridteam/sierra-data` | Accepts bridges and clients, leases, pairing, admin API |
 | **meshbridge** | Go | `dpup/sierra-meshrelay` (`cmd/meshbridge`) | Bridge daemon at host sites. Also `meshbridge connect`, a localhost TCP shim for TCP-only clients (official MeshCore app, meshcore-cli). |
 | **meshproto** | Go | `dpup/sierra-meshrelay` (`meshproto/`) | Message types, close codes, error codes and constants. Used by both the relay and meshbridge, and tested against this spec's examples so they can't drift. |
 | **meshcore-ts relay transport** | TypeScript | `dpup/meshcore-ts` | `MeshCoreClient.relay(…)`: a native client of this protocol, so any meshcore-ts app can use a gateway with no shim |

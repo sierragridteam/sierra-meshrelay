@@ -22,7 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"
 
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // Pairing gives a fresh bridge its token without anyone copying a secret.

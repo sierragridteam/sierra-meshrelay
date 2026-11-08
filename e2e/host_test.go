@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/bridge"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/connect"
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
-	"github.com/dpup/sierra-meshrelay/internal/pairing"
-	"github.com/dpup/sierra-meshrelay/internal/relayclient"
-	"github.com/dpup/sierra-meshrelay/meshproto"
-	"github.com/dpup/sierra-meshrelay/relay"
+	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/connect"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/pairing"
+	"github.com/sierragridteam/sierra-meshrelay/internal/relayclient"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/relay"
 )
 
 // --- pause ---------------------------------------------------------------------

@@ -25,7 +25,7 @@ import (
 	"github.com/dpup/prefab/logging"
 	"google.golang.org/grpc/codes"
 
-	"github.com/dpup/sierra-meshrelay/meshops"
+	"github.com/sierragridteam/sierra-meshrelay/meshops"
 )
 
 const repeaterSchema = `

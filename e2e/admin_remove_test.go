@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
-	"github.com/dpup/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
 )
 
 // TestAdminRemoveGateway runs `meshbridge admin remove` against a gateway with

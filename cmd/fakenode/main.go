@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/dpup/sierra-meshrelay/internal/fakenode"
+	"github.com/sierragridteam/sierra-meshrelay/internal/fakenode"
 )
 
 func main() {

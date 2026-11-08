@@ -16,13 +16,13 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/dpup/sierra-meshrelay/internal/companion"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/control"
-	"github.com/dpup/sierra-meshrelay/internal/nodelink"
-	"github.com/dpup/sierra-meshrelay/internal/pairing"
-	"github.com/dpup/sierra-meshrelay/internal/svc"
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/control"
+	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
+	"github.com/sierragridteam/sierra-meshrelay/internal/pairing"
+	"github.com/sierragridteam/sierra-meshrelay/internal/svc"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // identifyTCP runs the identity check against a TCP node.

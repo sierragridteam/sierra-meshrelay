@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 // TokenEnv supplies the admin token.

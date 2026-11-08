@@ -21,16 +21,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpup/sierra-meshrelay/internal/admin"
-	"github.com/dpup/sierra-meshrelay/internal/config"
-	"github.com/dpup/sierra-meshrelay/internal/update"
-	"github.com/dpup/sierra-meshrelay/relay"
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
+	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/internal/update"
+	"github.com/sierragridteam/sierra-meshrelay/relay"
 )
 
 // buildBridge builds meshbridge at version, trusting testKey for updates.
 func buildBridge(t *testing.T, out, version string, testKey ed25519.PublicKey) {
 	t.Helper()
-	ld := "-X main.version=" + version + " -X github.com/dpup/sierra-meshrelay/internal/update.extraKey=" +
+	ld := "-X main.version=" + version + " -X github.com/sierragridteam/sierra-meshrelay/internal/update.extraKey=" +
 		base64.StdEncoding.EncodeToString(testKey)
 	build := exec.Command("go", "build", "-ldflags", ld, "-o", out, "./cmd/meshbridge")
 	build.Dir = ".."
