@@ -32,7 +32,8 @@ Usage:
   meshbridge admin remove <gateway> [-yes]       Delete a gateway (revokes its token, disconnects its bridge)
   meshbridge admin logs <gateway> [-n 50] [-f]   A bridge's recent log lines and connects/disconnects
   meshbridge admin update-bridges [vX.Y.Z|off] [-gateway a,b]
-                                                 Offer bridges a release (they install it when idle)
+                                                 Show the release offered to bridges; with a version, offer it
+                                                 (bridges install it when idle; never a downgrade)
   meshbridge admin repeaters                     Shared repeaters and their last reading
   meshbridge admin repeater add <pubkey> <gateway>
                                                  Share a repeater, checking its password through <gateway>
@@ -278,14 +279,17 @@ func cmdAdmin(args []string) error {
 			if err != nil {
 				return err
 			}
+			// A query: say so, so it doesn't read as the start of a rollout.
 			switch {
 			case u.Version == "":
-				fmt.Println("Not offering bridges an update.")
+				fmt.Println("Currently not offering bridges an update.")
 			case len(u.Gateways) > 0:
-				fmt.Printf("Offering %s to %s.\n", u.Version, strings.Join(u.Gateways, ", "))
+				fmt.Printf("Currently offering %s to %s.\n", u.Version, strings.Join(u.Gateways, ", "))
 			default:
-				fmt.Printf("Offering %s to every bridge.\n", u.Version)
+				fmt.Printf("Currently offering %s to every bridge.\n", u.Version)
 			}
+			fmt.Println("Nothing changed. To offer a release: meshbridge admin update-bridges vX.Y.Z [-gateway a,b]")
+			fmt.Println("(a bridge installs only a release newer than its own; see versions with: meshbridge admin gateways)")
 			return nil
 		}
 		u := admin.BridgeUpdate{Version: arg(0)}
