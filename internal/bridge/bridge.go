@@ -2,8 +2,9 @@
 //
 // The two links are independent: the relay connection stays up while the node
 // is missing (the relay sees "bridge online, node offline"), and the node link
-// keeps retrying while the relay is unreachable. Frames pass through unchanged;
-// the only companion parsing is the identity check at node link-up.
+// keeps retrying while the relay is unreachable. Frames pass through unchanged,
+// except the few package nodepolicy refuses (secrets and firmware updates);
+// otherwise the only companion parsing is the identity check at node link-up.
 //
 // Never log frame payloads. They can carry private messages and channel keys.
 package bridge
@@ -168,7 +169,8 @@ type Status struct {
 	FramesFromNode  int64
 	DroppedFromNode int64
 	DroppedToNode   int64
-	// RefusedFrames counts frames nodepolicy stopped, either way.
+	// RefusedFrames counts frames nodepolicy stopped, either way. They are
+	// not in FramesToNode, FramesFromNode or the Dropped counts.
 	RefusedFrames int64
 
 	Paused     bool
