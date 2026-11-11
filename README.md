@@ -262,6 +262,7 @@ meshbridge admin logs <gateway> -f          # a bridge's log lines (never messag
 meshbridge admin remove <gateway>           # revoke and disconnect a gateway
 meshbridge admin update-bridges v0.8.1 -gateway mission-gateway   # offer a release to one gateway (canary)
 meshbridge admin update-bridges v0.8.1      # then to all; "off" stops offering
+meshbridge admin update-bridges             # show what is offered now (changes nothing)
 meshbridge admin repeaters                  # shared repeaters: last read, polling state, each gateway's last 24h
 meshbridge admin repeater add <pubkey> <gateway>
 meshbridge admin repeater remove <name or pubkey>
