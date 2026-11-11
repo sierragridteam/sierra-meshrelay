@@ -97,7 +97,20 @@ Each WebSocket message is one of two kinds:
   - Verified against MeshCore v1.18.0: `ArduinoSerialInterface.cpp` (`checkRecvFrame` / `writeFrame`) and `SerialWifiInterface.cpp` both use `'<'` (0x3c) toward the node and `'>'` (0x3e) from it, each followed by a 2-byte little-endian length. `MAX_FRAME_SIZE` is 176 (`src/helpers/BaseSerialInterface.h`); the firmware drops oversized outgoing frames and truncates oversized incoming ones.
 - **Text message** = one JSON control object with a `type` field. Unknown `type` values are ignored (forward compatibility).
 
-The relay forwards binary messages between the bridge and the client holding the lease, unchanged. It doesn't parse them, except where the relay spec says otherwise.
+The relay forwards binary messages between the bridge and the client holding the lease, unchanged. It doesn't parse them, except where the relay spec says otherwise, and except for the node command policy below.
+
+**Node command policy.** Companion firmware trusts whoever holds the companion link as the node's owner, sitting next to it. A lease holder isn't, so a few frames are refused for every lease, admins and the node's owner included (package `nodepolicy`):
+
+| Direction | Frame | Why |
+|---|---|---|
+| to node | `CMD_EXPORT_PRIVATE_KEY` (23) | returns the node's private key |
+| to node | `CMD_IMPORT_PRIVATE_KEY` (24) | replaces the node's identity |
+| to node | `CMD_FACTORY_RESET` (51) | wipes the node |
+| to node | `CMD_RUN_CLI_COMMAND` (66) with `get wifi.pwd` | returns the WiFi password (usually the host's home network). Matched after the firmware's own normalization (leading spaces, an `xx\|` prefix) and more loosely (case, whitespace, trailing text). |
+| to node | `CMD_ADD_UPDATE_CONTACT` (9) setting contact flag `0x10` | would let that contact run the node's CLI over the radio, past the bridge |
+| from node | `RESP_CODE_PRIVATE_KEY` (14) | second layer: dropped |
+
+A refused command never reaches the node. The lease holder gets `RESP_CODE_DISABLED` (15), the firmware's own "not available" reply, and the lease continues. The bridge enforces this on the host's machine, and the relay enforces it again, so an older bridge or a relay mistake doesn't let these through. Both count and log each refusal by reason, never its contents. Everything else passes, including commands neither side knows. The CLI rule matches one command: a firmware fork could add another way to read a secret.
 
 **Rate limit.** The relay throttles each connection to about 50 messages/s (burst 100). Throttling is backpressure: the relay reads more slowly. It does not drop frames or disconnect, so a node that sends its whole contact list at once is slowed down, not cut off.
 
@@ -480,4 +493,4 @@ MESHCORE_RELAY_TOKEN=smc_…
 
 ## Design constraint
 
-Keep the protocol small enough for a future embedded bridge (ESP32-class): JSON control messages are tiny and infrequent, binary frames are passed through unchanged, and nothing requires the bridge to keep companion-protocol state beyond the identity check.
+Keep the protocol small enough for a future embedded bridge (ESP32-class): JSON control messages are tiny and infrequent, binary frames are passed through unchanged apart from the stateless node command policy, and nothing requires the bridge to keep companion-protocol state beyond the identity check.

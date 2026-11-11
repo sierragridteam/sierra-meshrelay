@@ -62,7 +62,7 @@ Why native and not one cross-platform GUI: the app is small, it lives in the men
 
 ### Principles
 
-- **Dumb pipe.** Forward companion frames unchanged. The only time the service parses MeshCore traffic is the identity check at link-up. All intelligence lives in the relay.
+- **Dumb pipe.** Forward companion frames unchanged, except the few the node command policy refuses (PROTOCOL.md: a check on each frame's first byte, plus one CLI command and one contact flag). Otherwise the only time the service parses MeshCore traffic is the identity check at link-up. All intelligence lives in the relay.
 - **One static binary.** Pure Go, `CGO_ENABLED=0`. Targets: windows/amd64, windows/arm64, darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, linux/arm (v6 and v7).
 - **Portable core.** Keep session and protocol logic separate from I/O. A future embedded bridge will reimplement the protocol, so keep behaviour simple.
 

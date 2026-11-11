@@ -11,6 +11,7 @@ import (
 	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
 	"github.com/sierragridteam/sierra-meshrelay/internal/nodelink"
 	"github.com/sierragridteam/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/nodepolicy"
 )
 
 // runNode keeps a verified link to the node open for as long as ctx lives.
@@ -236,6 +237,10 @@ func (b *Bridge) waitOrRelink(ctx context.Context, d time.Duration) {
 // relay slows node reads rather than dropping frames.
 func (b *Bridge) fromNode(f []byte) {
 	b.framesFromNode.Add(1)
+	if reason, ok := nodepolicy.FromNode(f); !ok {
+		b.refuse("from_node", reason)
+		return
+	}
 	s := b.currentSession()
 	if s == nil || !s.isAttached() {
 		b.droppedFromNode.Add(1)
@@ -249,8 +254,27 @@ func (b *Bridge) fromNode(f []byte) {
 	}
 }
 
-// toNode writes a frame from the relay to the node.
+// refuse counts and logs a frame nodepolicy stopped, never its contents.
+func (b *Bridge) refuse(dir, reason string) {
+	b.refusedFrames.Add(1)
+	b.log.Warn("refused a frame by node policy", "dir", dir, "reason", reason)
+}
+
+// toNode writes a frame from the relay to the node. Every such frame comes
+// from a remote session, so nodepolicy applies to all of them: a refused
+// command never reaches the node, and the session gets the firmware's
+// "disabled" reply instead.
 func (b *Bridge) toNode(f []byte) {
+	if reason, ok := nodepolicy.ToNode(f); !ok {
+		b.refuse("to_node", reason)
+		if s := b.currentSession(); s != nil {
+			select {
+			case s.out <- nodepolicy.Refusal():
+			case <-s.done:
+			}
+		}
+		return
+	}
 	link := b.currentLink()
 	if link == nil {
 		b.droppedToNode.Add(1)
