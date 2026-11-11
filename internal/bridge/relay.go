@@ -243,7 +243,7 @@ func (b *Bridge) readLoop(s *session) error {
 				b.droppedToNode.Add(1)
 				continue
 			}
-			b.toNode(data)
+			b.toNode(s, data)
 		case websocket.MessageText:
 			b.handleControl(s, data)
 		}

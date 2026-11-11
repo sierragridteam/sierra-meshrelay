@@ -108,9 +108,15 @@ The relay forwards binary messages between the bridge and the client holding the
 | to node | `CMD_FACTORY_RESET` (51) | wipes the node |
 | to node | `CMD_RUN_CLI_COMMAND` (66) with `get wifi.pwd` | returns the WiFi password (usually the host's home network). Matched after the firmware's own normalization (leading spaces, an `xx\|` prefix) and more loosely (case, whitespace, trailing text). |
 | to node | `CMD_ADD_UPDATE_CONTACT` (9) setting contact flag `0x10` | would let that contact run the node's CLI over the radio, past the bridge |
+| to node | wadamesh `ota ...`: `CMD_SEND_RAW_DATA` (25) with an empty path, or `CMD_SEND_TXT_MSG` (2) to the `MESHCM` pseudo-contact | an HTTP firmware update, which wadamesh accepts from a WiFi TCP session; new firmware could read out every secret above |
 | from node | `RESP_CODE_PRIVATE_KEY` (14) | second layer: dropped |
 
-A refused command never reaches the node. The lease holder gets `RESP_CODE_DISABLED` (15), the firmware's own "not available" reply, and the lease continues. The bridge enforces this on the host's machine, and the relay enforces it again, so an older bridge or a relay mistake doesn't let these through. Both count and log each refusal by reason, never its contents. Everything else passes, including commands neither side knows. The CLI rule matches one command: a firmware fork could add another way to read a secret.
+A refused command never reaches the node. The lease holder gets `RESP_CODE_DISABLED` (15), the firmware's own "not available" reply, and the lease continues. The bridge enforces this on the host's machine, and the relay enforces it again, so an older bridge or a relay mistake doesn't let these through. Both count and log each refusal by reason, never its contents. Everything else passes, including commands neither side knows. Known gaps, by decision (2026-11-11):
+
+- The CLI rule matches one command. A firmware fork could add another way to read a secret.
+- Signing (`CMD_SIGN_START`/`DATA`/`FINISH`, 33–35) passes: the key stays on the node, but a lease holder can have the node sign data while the lease lasts.
+- Commands that can strand or lock out the owner pass: `set pin`, `set wifi.*`, and wadamesh's `tcp off`/`ble off`. None of them reveals a secret.
+- wadamesh's on-device backup export holds the private key and WiFi password, but only the device's own screen can start it.
 
 **Rate limit.** The relay throttles each connection to about 50 messages/s (burst 100). Throttling is backpressure: the relay reads more slowly. It does not drop frames or disconnect, so a node that sends its whole contact list at once is slowed down, not cut off.
 

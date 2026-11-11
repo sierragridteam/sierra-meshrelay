@@ -14,7 +14,7 @@ The relay is the meeting point. Bridges attach to it, and authenticated clients 
 2. **Separate process.** Run the relay as its own service, routed at `/mesh/relay/*` by the existing reverse proxy. A relay crash or restart must not affect the hazard and news feeds, and vice versa.
 3. **Don't log payloads.** Binary frames can contain private messages and channel secrets (`CHANNEL_INFO` returns the 16-byte key). Log metadata only: sizes, counts, timing. A per-gateway debug flag that logs payloads is fine if it's off by default and logged when turned on.
 4. **Store tokens hashed.** Show a token once, when it's created, then keep only a hash (SHA-256 is fine for 32 random bytes).
-5. **Remote sessions don't get the node's secrets.** The relay applies the node command policy (PROTOCOL.md, package `nodepolicy`) to every lease, including in-process ones (`Relay.Send`): no private key export or import, no factory reset, no `get wifi.pwd`, no contact given remote CLI, and private key replies are dropped. A refused frame is answered with `RESP_CODE_DISABLED`, logged by reason, and counted in `frames_refused_total`.
+5. **Remote sessions don't get the node's secrets.** The relay applies the node command policy (PROTOCOL.md, package `nodepolicy`) to every lease, including in-process ones (`Relay.Send`): no private key export or import, no factory reset, no `get wifi.pwd`, no contact given remote CLI, no wadamesh firmware update (`ota`), and private key replies are dropped. A refused frame is answered with `RESP_CODE_DISABLED`, logged by reason, and counted in `frames_refused_total`.
 
 ## Scope: phase 1 (build now)
 

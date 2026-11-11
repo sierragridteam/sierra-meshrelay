@@ -7,6 +7,18 @@ import (
 
 func cli(text string) []byte { return append([]byte{CmdRunCLICommand}, text...) }
 
+// raw is CMD_SEND_RAW_DATA with path_len and then the payload.
+func raw(pathLen byte, payload string) []byte {
+	return append([]byte{CmdSendRawData, pathLen}, payload...)
+}
+
+// txt is CMD_SEND_TXT_MSG to a 6-byte recipient prefix.
+func txt(recipient, text string) []byte {
+	f := []byte{CmdSendTxtMsg, 0, 0, 1, 2, 3, 4}
+	f = append(f, recipient...)
+	return append(f, text...)
+}
+
 func contact(flags byte) []byte {
 	f := make([]byte, 1+32+2+1+64+32+4)
 	f[0] = CmdAddUpdateContact
@@ -40,6 +52,11 @@ func TestToNode(t *testing.T) {
 		{"cli case and tabs", cli("GET\twifi.PWD"), ReasonWiFiPassword},
 		{"cli double space", cli("get  wifi.pwd"), ReasonWiFiPassword},
 		{"cli trailing text", cli("get wifi.pwd please"), ReasonWiFiPassword},
+		{"cli whitespace as the prefix", cli("\t\t|get wifi.pwd"), ReasonWiFiPassword},
+		{"cli space and newlines as the prefix", cli(" \n\r|get wifi.pwd"), ReasonWiFiPassword},
+		{"cli vertical tab prefix", cli("\v\f|get wifi.pwd"), ReasonWiFiPassword},
+		{"cli NBSP prefix", cli("\u00a0|get wifi.pwd"), ReasonWiFiPassword},
+		{"cli NEL prefix", cli("\u0085|get wifi.pwd"), ReasonWiFiPassword},
 		{"cli wifi status", cli("get wifi.status"), ""},
 		{"cli wifi ssid", cli("get wifi.ssid"), ""},
 		{"cli set wifi password", cli("set wifi.pwd hunter2"), ""},
@@ -51,6 +68,17 @@ func TestToNode(t *testing.T) {
 		{"contact with remote cli", contact(ContactFlagRemoteCLI), ReasonContactRemoteCLI},
 		{"contact with remote cli and others", contact(0xff), ReasonContactRemoteCLI},
 		{"short contact frame", []byte{CmdAddUpdateContact, 1, 2}, ""},
+
+		{"raw data ota url", raw(0, "ota url https://example.invalid/fw.bin"), ReasonFirmwareUpdate},
+		{"raw data ota spaced and cased", raw(0, " \tOTA start"), ReasonFirmwareUpdate},
+		{"raw data ota bare", raw(0, "ota"), ReasonFirmwareUpdate},
+		{"raw data with a path", raw(1, "\x42ota url x"), ""},
+		{"raw data other payload", raw(0, "hello"), ""},
+		{"raw data short", []byte{CmdSendRawData}, ""},
+		{"meshcomod ota", txt("MESHCM", "ota url https://example.invalid/fw.bin"), ReasonFirmwareUpdate},
+		{"meshcomod other command", txt("MESHCM", "wifi status"), ""},
+		{"text to a contact saying ota", txt("ABCDEF", "ota url x"), ""},
+		{"text short", []byte{CmdSendTxtMsg, 0, 0}, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -77,4 +105,51 @@ func TestRefusalIsTheFirmwaresDisabledReply(t *testing.T) {
 	if !bytes.Equal(Refusal(), []byte{15}) {
 		t.Fatalf("Refusal() = % x", Refusal())
 	}
+}
+
+// firmwareReturnsPassword models MyMesh::handleCommand in upstream MeshCore
+// and wadamesh for CMD_RUN_CLI_COMMAND: the text ends at the first NUL,
+// leading spaces are skipped, a 3-byte "xx|" prefix is dropped when the text
+// is longer than 4 bytes, and the rest is compared exactly.
+func firmwareReturnsPassword(text []byte) bool {
+	if i := bytes.IndexByte(text, 0); i >= 0 {
+		text = text[:i]
+	}
+	s := string(bytes.TrimLeft(text, " "))
+	if len(s) > 4 && s[2] == '|' {
+		s = s[3:]
+	}
+	return s == "get wifi.pwd"
+}
+
+// Every 2-byte prefix the firmware would strip, with and without leading
+// spaces, is refused.
+func TestEveryPrefixIsRefused(t *testing.T) {
+	for a := 0; a < 256; a++ {
+		for b := 0; b < 256; b++ {
+			for _, lead := range []string{"", " ", "   "} {
+				text := []byte(lead + string([]byte{byte(a), byte(b)}) + "|get wifi.pwd")
+				if !firmwareReturnsPassword(text) {
+					continue
+				}
+				if _, ok := ToNode(cli(string(text))); ok {
+					t.Fatalf("prefix % x passed", text[:len(lead)+3])
+				}
+			}
+		}
+	}
+}
+
+// Anything the firmware model would answer with the password is refused.
+func FuzzCLINeverLeaksWiFiPassword(f *testing.F) {
+	for _, s := range []string{"get wifi.pwd", "  ab|get wifi.pwd", "\t\t|get wifi.pwd", "get wifi.pwd\x00x", "x"} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, text []byte) {
+		if firmwareReturnsPassword(text) {
+			if _, ok := ToNode(append([]byte{CmdRunCLICommand}, text...)); ok {
+				t.Fatalf("% x passed", text)
+			}
+		}
+	})
 }

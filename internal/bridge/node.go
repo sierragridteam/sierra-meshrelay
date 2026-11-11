@@ -236,11 +236,11 @@ func (b *Bridge) waitOrRelink(ctx context.Context, d time.Duration) {
 // attached. When one is, it blocks until the relay takes the frame: a slow
 // relay slows node reads rather than dropping frames.
 func (b *Bridge) fromNode(f []byte) {
-	b.framesFromNode.Add(1)
 	if reason, ok := nodepolicy.FromNode(f); !ok {
 		b.refuse("from_node", reason)
 		return
 	}
+	b.framesFromNode.Add(1)
 	s := b.currentSession()
 	if s == nil || !s.isAttached() {
 		b.droppedFromNode.Add(1)
@@ -260,18 +260,19 @@ func (b *Bridge) refuse(dir, reason string) {
 	b.log.Warn("refused a frame by node policy", "dir", dir, "reason", reason)
 }
 
-// toNode writes a frame from the relay to the node. Every such frame comes
-// from a remote session, so nodepolicy applies to all of them: a refused
-// command never reaches the node, and the session gets the firmware's
-// "disabled" reply instead.
-func (b *Bridge) toNode(f []byte) {
+// toNode writes a frame that arrived on relay session s to the node. Every
+// such frame comes from a remote session, so nodepolicy applies to all of
+// them: a refused command never reaches the node, and the session gets the
+// firmware's "disabled" reply instead. That reply waits for room in the
+// session's queue like any node frame, but gives up once the session's I/O
+// is cancelled: this runs on the read loop, which teardown waits for.
+func (b *Bridge) toNode(s *session, f []byte) {
 	if reason, ok := nodepolicy.ToNode(f); !ok {
 		b.refuse("to_node", reason)
-		if s := b.currentSession(); s != nil {
-			select {
-			case s.out <- nodepolicy.Refusal():
-			case <-s.done:
-			}
+		select {
+		case s.out <- nodepolicy.Refusal():
+		case <-s.ioCtx.Done():
+		case <-s.done:
 		}
 		return
 	}

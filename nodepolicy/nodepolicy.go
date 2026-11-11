@@ -14,6 +14,11 @@
 //     a WiFi/TCP node stores, which is usually the host's home network.
 //   - CMD_ADD_UPDATE_CONTACT (9) setting contact flag 0x10 (remote CLI): it
 //     would let that contact run the same CLI over the radio, past any bridge.
+//   - wadamesh's HTTP firmware update (`ota ...`), sent as CMD_SEND_RAW_DATA
+//     (25) with an empty path or as CMD_SEND_TXT_MSG (2) to its "MESHCM"
+//     pseudo-contact. wadamesh allows it from a WiFi TCP companion session,
+//     which is how a TCP-linked bridge talks to the node, and new firmware
+//     could read out every secret this package protects.
 //
 // Every other frame passes, including commands this package doesn't know.
 // The CLI check matches one command, after normalizing the text the way the
@@ -38,9 +43,11 @@ import (
 
 // Companion commands and replies this package recognizes.
 const (
+	CmdSendTxtMsg       byte = 2
 	CmdAddUpdateContact byte = 9
 	CmdExportPrivateKey byte = 23
 	CmdImportPrivateKey byte = 24
+	CmdSendRawData      byte = 25
 	CmdFactoryReset     byte = 51
 	CmdRunCLICommand    byte = 66
 
@@ -56,7 +63,14 @@ const (
 	// contactFlagsOffset is the flags byte in CMD_ADD_UPDATE_CONTACT:
 	// [cmd][pubkey 32][type][flags]...
 	contactFlagsOffset = 1 + 32 + 1
+	// txtRecipientOffset is the 6-byte recipient key prefix in
+	// CMD_SEND_TXT_MSG: [cmd][txt_type][attempt][timestamp 4][prefix 6][text].
+	txtRecipientOffset = 1 + 1 + 1 + 4
 )
+
+// meshcomodRecipient is wadamesh's pseudo-contact for local commands
+// (MESHCOMOD_PUB_KEY_PREFIX, "MESHCM").
+var meshcomodRecipient = []byte("MESHCM")
 
 // Reasons a frame is refused. They're safe to log: never frame contents.
 const (
@@ -65,6 +79,7 @@ const (
 	ReasonFactoryReset     = "factory_reset"
 	ReasonWiFiPassword     = "cli_wifi_password"
 	ReasonContactRemoteCLI = "contact_remote_cli"
+	ReasonFirmwareUpdate   = "firmware_update"
 	ReasonPrivateKeyReply  = "private_key_reply"
 )
 
@@ -84,6 +99,17 @@ func ToNode(frame []byte) (reason string, ok bool) {
 	case CmdRunCLICommand:
 		if isWiFiPasswordRead(frame[1:]) {
 			return ReasonWiFiPassword, false
+		}
+	case CmdSendRawData:
+		// [cmd][path_len][path...][payload]: wadamesh runs an empty-path
+		// payload starting "ota" as a local command.
+		if len(frame) >= 2 && frame[1] == 0 && isOTACommand(frame[2:]) {
+			return ReasonFirmwareUpdate, false
+		}
+	case CmdSendTxtMsg:
+		r := txtRecipientOffset
+		if len(frame) >= r+6 && bytes.Equal(frame[r:r+6], meshcomodRecipient) && isOTACommand(frame[r+6:]) {
+			return ReasonFirmwareUpdate, false
 		}
 	case CmdAddUpdateContact:
 		// The firmware replaces a contact's flags with this byte, so an
@@ -109,19 +135,43 @@ func FromNode(frame []byte) (reason string, ok bool) {
 func Refusal() []byte { return []byte{RespDisabled} }
 
 // isWiFiPasswordRead reports whether CLI text would make the firmware return
-// the WiFi password. The firmware reads up to the first NUL, skips leading
-// spaces, then drops an optional 3-character "xx|" prefix, and compares
-// exactly. This normalizes more loosely than that (any whitespace, case,
-// repeated prefixes, trailing text), so it refuses everything the firmware
-// would answer and a little more; refusing a harmless variant costs nothing.
+// the WiFi password. It refuses if either of two readings matches:
+//
+//   - the firmware's own: up to the first NUL, skip leading spaces (only
+//     0x20), then drop 3 bytes if the text is longer than 4 and its third
+//     byte is '|' (so "\t\t|get wifi.pwd" is a valid prefixed command);
+//   - a looser one: any whitespace, case, repeated prefixes and trailing text.
+//
+// The firmware compares exactly, so the loose reading refuses a few harmless
+// variants too. That costs nothing.
 func isWiFiPasswordRead(text []byte) bool {
 	if i := bytes.IndexByte(text, 0); i >= 0 {
 		text = text[:i]
 	}
-	s := strings.TrimSpace(string(text))
+	const cmd = "get wifi.pwd"
+	exact := strings.TrimLeft(string(text), " ")
+	if len(exact) > 4 && exact[2] == '|' {
+		exact = exact[3:]
+	}
+	return strings.HasPrefix(loose(exact), cmd) || strings.HasPrefix(loose(string(text)), cmd)
+}
+
+// loose normalizes CLI text generously: trim whitespace, drop any number of
+// 3-character "xx|" prefixes, collapse whitespace, lower case.
+func loose(s string) string {
+	s = strings.TrimSpace(s)
 	for len(s) >= 3 && s[2] == '|' {
 		s = strings.TrimSpace(s[3:])
 	}
-	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
-	return strings.HasPrefix(s, "get wifi.pwd")
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// isOTACommand reports whether a wadamesh local command starts a firmware
+// update: "ota" after leading whitespace, any case (the firmware also wants a
+// space, tab or end after it; refusing "otaXYZ" too is harmless).
+func isOTACommand(text []byte) bool {
+	if i := bytes.IndexByte(text, 0); i >= 0 {
+		text = text[:i]
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(string(text))), "ota")
 }
