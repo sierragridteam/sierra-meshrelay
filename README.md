@@ -235,6 +235,8 @@ meshbridge repeater list             # what this bridge shared, when SIERRA last
 meshbridge repeater remove "Ridge RPT"
 ```
 
+Run these on the bridge's computer (with sudo, or as an administrator on Windows): they act as that bridge, using the token in its config. On any other computer they say there's no bridge set up there. Admins manage every shared repeater from anywhere with `meshbridge admin repeaters` and `admin repeater add|remove`.
+
 SIERRA logs in to a shared repeater over the mesh to read its status (battery, airtime, packet counts) for the Grid:
 - Any SIERRA gateway in range may be used, not only the one that shared it.
 - The relay checks the password by logging in before it stores it, encrypted.

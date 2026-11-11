@@ -108,7 +108,7 @@ func (c *Config) Validate() error {
 	}
 	c.Relay = strings.TrimRight(c.Relay, "/")
 	if c.Token == "" {
-		errs = append(errs, fmt.Errorf("token is required (or set %s)", TokenEnv))
+		errs = append(errs, fmt.Errorf("no token: this bridge isn't paired yet (run meshbridge setup), or set %s", TokenEnv))
 	} else if !strings.HasPrefix(c.Token, "smb_") {
 		errs = append(errs, errors.New("token must be a bridge token (smb_…)"))
 	}

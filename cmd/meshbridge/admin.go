@@ -17,7 +17,8 @@ import (
 	"github.com/sierragridteam/sierra-meshrelay/internal/config"
 )
 
-const adminUsage = `meshbridge admin: manage SIERRA pairing (needs an admin token).
+const adminUsage = `meshbridge admin: manage SIERRA gateways, pairing, bridge updates and shared repeaters
+(needs an admin token).
 
 Usage:
   meshbridge admin pairings                      Pending pairing codes
@@ -40,16 +41,20 @@ Usage:
   meshbridge admin repeater remove <name or pubkey>
                                                  Stop sharing a repeater (deletes its password)
 
-The admin token comes from $MESHBRIDGE_ADMIN_TOKEN, or from
-` + "~/.config/meshbridge/admin.token" + ` (chmod 600). Every command takes -relay.
+These work from any computer. The admin token comes from
+$MESHBRIDGE_ADMIN_TOKEN, or from ` + "~/.config/meshbridge/admin.token" + ` (chmod 600;
+-token-file picks another). Every command takes -relay.
 `
 
-func cmdAdmin(args []string) error {
+func cmdAdmin(args []string) (err error) {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Print(adminUsage)
 		return nil
 	}
 	sub, args := args[0], args[1:]
+	if !slices.Contains(adminCommands, sub) {
+		return fmt.Errorf("unknown admin command %q\n\n%s", sub, adminUsage)
+	}
 	fs := flag.NewFlagSet("admin "+sub, flag.ExitOnError)
 	relayURL := fs.String("relay", config.DefaultRelay, "relay URL")
 	tokenFile := fs.String("token-file", admin.DefaultTokenFile(), "admin token file (if $"+admin.TokenEnv+" is unset)")
@@ -70,6 +75,11 @@ func cmdAdmin(args []string) error {
 		return err
 	}
 	c := &admin.Client{APIBase: config.HTTPBase(*relayURL), Token: tok}
+	defer func() {
+		if isUnauthorized(err) {
+			err = fmt.Errorf("the relay at %s didn't accept your admin token (from $%s or %s)", *relayURL, admin.TokenEnv, *tokenFile)
+		}
+	}()
 	ctx := context.Background()
 	arg := func(i int) string {
 		if i < len(pos) {
@@ -355,7 +365,7 @@ func cmdAdmin(args []string) error {
 			if err != nil {
 				return err
 			}
-			r, err := pickShared(rs, arg(1))
+			r, err := pickShared(rs, arg(1), "meshbridge admin repeaters")
 			if err != nil {
 				return err
 			}
@@ -369,6 +379,11 @@ func cmdAdmin(args []string) error {
 	}
 	return fmt.Errorf("unknown admin command %q\n\n%s", sub, adminUsage)
 }
+
+// adminCommands are the admin subcommands, checked before the token is
+// loaded so a typo isn't reported as a missing token.
+var adminCommands = []string{"pairings", "approve", "deny", "invite", "invites", "revoke", "remove", "rm",
+	"gateways", "update-bridges", "logs", "repeaters", "repeater"}
 
 // parseInterleaved parses flags that may come before or after positional
 // arguments (`approve K7M-4QX cabin -repair`), returning the positionals.

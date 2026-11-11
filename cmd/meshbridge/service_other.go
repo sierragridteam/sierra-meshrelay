@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/sierragridteam/sierra-meshrelay/internal/config"
 	"github.com/sierragridteam/sierra-meshrelay/internal/update"
@@ -28,6 +29,11 @@ func keepAwake(context.Context, *slog.Logger) {}
 const (
 	installHint = "sudo meshbridge install"
 	setupHint   = "sudo meshbridge setup"
+	runHint     = "sudo meshbridge run"
+	elevateHint = "run it with sudo"
+	// serviceSupported: install sets up a systemd service on Linux; macOS
+	// has no service yet.
+	serviceSupported = runtime.GOOS == "linux"
 )
 
 // applyStaged gets a staged update installed. The systemd unit installs it

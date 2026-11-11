@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/sierragridteam/sierra-meshrelay/meshproto"
@@ -48,6 +49,10 @@ func (c *Client) post(ctx context.Context, path string, body, out any) (int, err
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) && !errors.Is(err, context.Canceled) {
+			return 0, fmt.Errorf("couldn't reach SIERRA's relay (%s): %w", req.URL.Host, ue.Err)
+		}
 		return 0, err
 	}
 	defer resp.Body.Close()

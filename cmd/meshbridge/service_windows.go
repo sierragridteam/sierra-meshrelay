@@ -121,6 +121,10 @@ func keepAwake(ctx context.Context, log *slog.Logger) {
 const (
 	installHint = "meshbridge install, as administrator"
 	setupHint   = "meshbridge setup, as administrator"
+	runHint     = "meshbridge run, as administrator"
+	elevateHint = "run it from an elevated PowerShell (Run as administrator)"
+	// serviceSupported: install sets up a Windows service.
+	serviceSupported = true
 )
 
 // applyStaged marks a staged update ready. The service's account can't

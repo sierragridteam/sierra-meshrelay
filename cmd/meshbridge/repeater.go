@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -29,8 +30,10 @@ Usage:
   meshbridge repeater remove <name or pubkey>
                                              Stop sharing one (deletes its password from SIERRA)
 
-Run them as root (sudo) or an administrator: they use this bridge's
-credentials from its config. -config picks another config file.
+Run these on the bridge's computer, with sudo (or as an administrator on
+Windows): they act as this bridge, using the token in its config. -config
+picks another config file. SIERRA admins can see and manage every shared
+repeater from any computer with: meshbridge admin repeaters
 `
 
 const repeaterWarning = `Before you share it:
@@ -50,17 +53,37 @@ func cmdRepeater(args []string) error {
 		return nil
 	}
 	sub, args := args[0], args[1:]
+	switch sub {
+	case "add", "list", "ls", "remove", "rm":
+	default:
+		return fmt.Errorf("unknown repeater command %q\n\n%s", sub, repeaterUsage)
+	}
 	fs := flag.NewFlagSet("repeater "+sub, flag.ExitOnError)
 	path := fs.String("config", config.DefaultPath(), "bridge config file")
 	yes := fs.Bool("yes", false, "add: don't ask for confirmation")
 	pos := parseInterleaved(fs, args)
-	cfg, err := config.Load(*path)
+	cfg, err := loadBridgeConfig(*path)
 	if err != nil {
-		return fmt.Errorf("%w\nRun this as root (sudo) or an administrator on the bridge's computer", err)
+		var nb *errNoBridge
+		if _, terr := admin.LoadToken(admin.DefaultTokenFile()); errors.As(err, &nb) && terr == nil {
+			err = fmt.Errorf("%w\nAs a SIERRA admin, see every shared repeater from here with: meshbridge admin repeaters", err)
+		}
+		return err
 	}
 	c := &admin.Client{APIBase: config.HTTPBase(cfg.Relay), Token: cfg.Token}
 	ctx := context.Background()
 	in := bufio.NewReader(os.Stdin)
+	if err := runRepeater(ctx, c, sub, pos, *yes, in); err != nil {
+		if isUnauthorized(err) {
+			return fmt.Errorf("the relay didn't accept this bridge's token: SIERRA may have removed or re-paired gateway %q. "+
+				"Ask your SIERRA contact for an invite, then run: %s -repair", cfg.Gateway, setupHint)
+		}
+		return err
+	}
+	return nil
+}
+
+func runRepeater(ctx context.Context, c *admin.Client, sub string, pos []string, yes bool, in *bufio.Reader) error {
 
 	switch sub {
 	case "list", "ls":
@@ -83,7 +106,7 @@ func cmdRepeater(args []string) error {
 		if err != nil {
 			return err
 		}
-		r, err := pickShared(rs, pos[0])
+		r, err := pickShared(rs, pos[0], "meshbridge repeater list")
 		if err != nil {
 			return err
 		}
@@ -105,7 +128,7 @@ func cmdRepeater(args []string) error {
 		}
 		fmt.Printf("\nSharing %s (%s…)\n\n", pick.Name, pick.Pubkey[:12])
 		fmt.Print(repeaterWarning)
-		if !*yes {
+		if !yes {
 			fmt.Print("\nShare it? [y/N]: ")
 			line, _ := in.ReadString('\n')
 			if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
@@ -228,7 +251,8 @@ func printNearby(rs []admin.NearbyRepeater) {
 	w.Flush()
 }
 
-func pickShared(rs []admin.Repeater, want string) (admin.Repeater, error) {
+// pickShared finds the shared repeater want names; listCmd is how to list them.
+func pickShared(rs []admin.Repeater, want, listCmd string) (admin.Repeater, error) {
 	var hits []admin.Repeater
 	for _, r := range rs {
 		if strings.EqualFold(r.Name, want) || strings.HasPrefix(r.Pubkey, strings.ToLower(want)) {
@@ -239,7 +263,7 @@ func pickShared(rs []admin.Repeater, want string) (admin.Repeater, error) {
 	case 1:
 		return hits[0], nil
 	case 0:
-		return admin.Repeater{}, fmt.Errorf("no shared repeater matches %q", want)
+		return admin.Repeater{}, fmt.Errorf("no shared repeater matches %q (see: %s)", want, listCmd)
 	}
 	return admin.Repeater{}, fmt.Errorf("%q matches %d repeaters; use more of the pubkey", want, len(hits))
 }
