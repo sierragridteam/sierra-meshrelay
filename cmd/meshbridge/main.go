@@ -33,27 +33,30 @@ import (
 // version is set at build time with -ldflags "-X main.version=…".
 var version = "dev"
 
-const usage = `meshbridge connects a MeshCore companion node to the SIERRA Mesh Relay.
+var usage = `meshbridge connects a MeshCore companion node to the SIERRA Mesh Relay.
 
-Usage:
+On the bridge's computer (with sudo, or as an administrator on Windows):
   meshbridge setup [-passphrase words] [-host addr]
-                                  Pair this bridge with SIERRA and write its config
-  meshbridge run [-config path]   Run the bridge in the foreground
+                                  Pair this computer's bridge with SIERRA and write its config
+  meshbridge install              Install and start the bridge as a service (Linux, Windows)
+  meshbridge uninstall            Stop and remove the service (keeps the config)
+  meshbridge run                  Run the bridge in the foreground
   meshbridge status               Show what the running bridge is doing
   meshbridge pause [1h|tomorrow|until-resumed]
                                   Stop sharing the node (default 1h)
   meshbridge resume               Start sharing again
   meshbridge repeater add|list|remove
                                   Share your repeaters with SIERRA
-  meshbridge install              Install as a service (systemd or Windows; needs sudo or an admin)
-  meshbridge uninstall            Stop and remove the service (keeps the config)
+
+From any computer:
   meshbridge find-node [-host addr]
-                                  Find nodes on this network and print their identity
-  meshbridge connect <gateway>    Use a remote gateway as a local TCP companion port
-  meshbridge admin <command>      Approve pairing codes, create invites (SIERRA admins)
+                                  Find MeshCore nodes on this network and print their identity
+  meshbridge connect <gateway>    Use a remote gateway as a local companion port (needs a client token)
+  meshbridge admin <command>      Manage gateways, pairing, bridge updates and repeaters (SIERRA admins)
   meshbridge version              Print version and build info
 
-Every command takes -config (default: this OS's config path).
+The bridge's commands read its config, ` + config.DefaultPath() + `
+(-config picks another). meshbridge <command> -h lists a command's flags.
 `
 
 func main() {
@@ -124,7 +127,7 @@ func cmdRun(args []string) error {
 // runBridge runs the bridge until ctx ends. managed says it's the installed
 // service, which may update itself.
 func runBridge(ctx context.Context, path string, logJSON bool, controlAddr string, logOut io.Writer, managed bool) error {
-	cfg, err := config.Load(path)
+	cfg, err := loadBridgeConfig(path)
 	if err != nil {
 		return err
 	}
@@ -254,7 +257,10 @@ func cmdConnect(args []string) error {
 	relay := fs.String("relay", config.DefaultRelay, "relay base URL")
 	preempt := fs.Bool("preempt", false, "take the gateway from its current user (admins only)")
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage: meshbridge connect <gateway> [flags]\n\n")
+		fmt.Fprintf(fs.Output(), "Usage: meshbridge connect <gateway> [flags]\n\n"+
+			"Opens a local TCP port that MeshCore apps and meshcore-cli can use as if the\n"+
+			"gateway's node were on this network. Needs a client token from a SIERRA admin,\n"+
+			"in $%s (safer than -token, which lands in shell history).\n\n", clientTokenEnv)
 		fs.PrintDefaults()
 	}
 	// Accept the gateway before or after the flags.
@@ -274,7 +280,7 @@ func cmdConnect(args []string) error {
 		*token = os.Getenv(clientTokenEnv)
 	}
 	if *token == "" {
-		return fmt.Errorf("a client token is required (-token or $%s)", clientTokenEnv)
+		return fmt.Errorf("connect needs a client token (smc_…) from a SIERRA admin: set $%s (or pass -token)", clientTokenEnv)
 	}
 	host, _, err := net.SplitHostPort(*listen)
 	if err != nil {

@@ -97,7 +97,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return err
+		return unreachable(c.APIBase, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -314,4 +314,18 @@ func (c *Client) SetBridgeUpdate(ctx context.Context, u BridgeUpdate) ([]string,
 		Offered []string `json:"offered"`
 	}
 	return out.Offered, c.do(ctx, http.MethodPut, "/bridge-update", u, &out)
+}
+
+// unreachable explains a request that got no answer from the relay at base,
+// without the request URL and method that *url.Error adds.
+func unreachable(base string, err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) && !errors.Is(err, context.Canceled) {
+		host := base
+		if u, perr := url.Parse(base); perr == nil && u.Host != "" {
+			host = u.Host
+		}
+		return fmt.Errorf("couldn't reach the relay at %s: %w", host, ue.Err)
+	}
+	return err
 }

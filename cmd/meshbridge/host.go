@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	iofs "io/fs"
 	"net"
 	"os"
 	"os/signal"
@@ -66,11 +67,22 @@ func cmdSetup(args []string) error {
 	_ = fs.Parse(args)
 
 	cfg, exists, err := config.LoadRaw(*path)
+	if errors.Is(err, iofs.ErrPermission) {
+		return fmt.Errorf("can't read %s: %s", *path, elevateHint)
+	}
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", *path, err)
 	}
 	if exists && cfg.Token != "" && !*repair {
 		return fmt.Errorf("this bridge is already paired as gateway %q (%s). Use -repair to pair it again", cfg.Gateway, *path)
+	}
+	// Check the config can be saved before pairing: an approved pairing whose
+	// token can't be written is wasted (and the code or passphrase used up).
+	if err := checkWritable(filepath.Dir(*path)); err != nil {
+		if errors.Is(err, iofs.ErrPermission) {
+			return fmt.Errorf("can't write the config to %s: %s", filepath.Dir(*path), elevateHint)
+		}
+		return fmt.Errorf("can't write the config to %s: %w", filepath.Dir(*path), err)
 	}
 	if *relay != "" {
 		cfg.Relay = *relay
@@ -155,12 +167,33 @@ func cmdSetup(args []string) error {
 	if cfg.Node.ExpectedPubkey == "" {
 		fmt.Println("No node was found yet; the bridge will keep looking on this network.")
 	}
-	if *byInstaller {
+	run := runHint
+	if *path != config.DefaultPath() {
+		run += " -config " + *path
+	}
+	switch {
+	case *byInstaller:
 		fmt.Println("Installing the service…")
-	} else {
-		fmt.Printf("Start the bridge with: meshbridge run -config %s (or install it as a service: %s)\n", *path, installHint)
+	case serviceSupported:
+		fmt.Printf("Install it as a service, so it starts at boot: %s\n(or run it in the foreground: %s)\n", installHint, run)
+	default:
+		fmt.Printf("Start the bridge with: %s\n", run)
 	}
 	return nil
+}
+
+// checkWritable reports whether files can be created in dir, creating it
+// if needed.
+func checkWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".meshbridge-write-check-*")
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return os.Remove(f.Name())
 }
 
 // findNodeForSetup finds the node to pair: at the configured address, or by
@@ -225,10 +258,20 @@ func controlClient(fs *flag.FlagSet, args []string) (*control.Client, *flag.Flag
 	path := fs.String("config", config.DefaultPath(), "config file of the running bridge")
 	addr := fs.String("control", control.DefaultAddr, "the bridge's control API address")
 	_ = fs.Parse(args)
-	tok, err := control.ReadToken(filepath.Join(filepath.Dir(*path), control.TokenFile))
-	if err != nil {
-		return nil, fs, fmt.Errorf("can't read the bridge's control secret (is it running, and can you read %s?): %w",
-			filepath.Dir(*path), err)
+	secret := filepath.Join(filepath.Dir(*path), control.TokenFile)
+	tok, err := control.ReadToken(secret)
+	switch {
+	case err == nil:
+	case errors.Is(err, iofs.ErrPermission):
+		return nil, fs, fmt.Errorf("can't read the bridge's control secret %s: %s", secret, elevateHint)
+	case errors.Is(err, iofs.ErrNotExist):
+		if _, serr := os.Stat(*path); errors.Is(serr, iofs.ErrNotExist) {
+			return nil, fs, &errNoBridge{*path}
+		}
+		return nil, fs, fmt.Errorf("the bridge hasn't run yet: it creates its control secret (%s) when it first starts. Start it with: %s",
+			secret, startHint())
+	default:
+		return nil, fs, fmt.Errorf("can't read the bridge's control secret: %w", err)
 	}
 	return &control.Client{Addr: *addr, Token: tok}, fs, nil
 }
@@ -277,10 +320,21 @@ func cmdResume(args []string) error {
 }
 
 func notRunning(err error) error {
-	if strings.Contains(err.Error(), "connection refused") {
-		return errors.New("the bridge isn't running (start it with meshbridge run)")
+	if isConnRefused(err) {
+		return fmt.Errorf("the bridge isn't running. Start it with: %s", startHint())
 	}
 	return err
+}
+
+// startHint says how to start the bridge: its service where there is one.
+func startHint() string {
+	switch {
+	case runtime.GOOS == "windows":
+		return "Start-Service meshbridge (elevated PowerShell), or " + runHint
+	case serviceSupported:
+		return "sudo systemctl start meshbridge (if installed), or " + runHint
+	}
+	return runHint
 }
 
 func printStatus(d control.StatusDoc) {
@@ -329,8 +383,12 @@ func cmdInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := config.Load(abs); err != nil {
-		return fmt.Errorf("%w\nPair this bridge first with: %s", err, setupHint)
+	if _, err := loadBridgeConfig(abs); err != nil {
+		var nb *errNoBridge
+		if errors.As(err, &nb) {
+			return fmt.Errorf("this computer's bridge isn't paired yet (no config at %s). Pair it first with: %s", abs, setupHint)
+		}
+		return err
 	}
 	exe, err := os.Executable()
 	if err != nil {
