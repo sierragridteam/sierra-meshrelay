@@ -11,6 +11,8 @@ import (
 
 	"github.com/dpup/prefab"
 	"github.com/dpup/prefab/logging"
+
+	"github.com/sierragridteam/sierra-meshrelay/nodepolicy"
 )
 
 // Config tunes the relay. Zero values take the defaults in withDefaults.
@@ -274,6 +276,7 @@ type metrics struct {
 	framesToNode   atomic.Int64
 	framesFromNode atomic.Int64
 	framesDropped  atomic.Int64
+	framesRefused  atomic.Int64 // nodepolicy: either direction
 	authFailures   atomic.Int64
 	bridgeSessions atomic.Int64 // total accepted
 	leases         atomic.Int64 // total granted
@@ -352,6 +355,7 @@ func (r *Relay) Run(ctx context.Context) {
 				"frames_to_node_per_min", cur.FramesToNode-prev.FramesToNode,
 				"frames_from_node_per_min", cur.FramesFromNode-prev.FramesFromNode,
 				"frames_dropped_per_min", cur.FramesDropped-prev.FramesDropped,
+				"frames_refused_per_min", cur.FramesRefused-prev.FramesRefused,
 				"auth_failures_per_min", cur.AuthFailures-prev.AuthFailures)
 			prev = cur
 		}
@@ -677,7 +681,9 @@ func (r *Relay) Send(l *Lease, frame []byte) error {
 	return nil
 }
 
-// toNode forwards a frame from the lease holder to its gateway's bridge.
+// toNode forwards a frame from the lease holder to its gateway's bridge. A
+// frame nodepolicy refuses never leaves the relay: the holder gets the
+// firmware's "disabled" reply instead, and the lease carries on.
 func (r *Relay) toNode(l *Lease, frame []byte) bool {
 	r.mu.Lock()
 	g := r.gws[l.Gateway]
@@ -685,6 +691,13 @@ func (r *Relay) toNode(l *Lease, frame []byte) bool {
 		r.mu.Unlock()
 		r.m.framesDropped.Add(1)
 		return false
+	}
+	if reason, ok := nodepolicy.ToNode(frame); !ok {
+		l.touch(r.now())
+		l.holder.Deliver(nodepolicy.Refusal())
+		r.mu.Unlock()
+		r.refused(l.Gateway, l.ID, l.Client, "to_node", reason)
+		return true
 	}
 	b := g.bridge
 	r.mu.Unlock()
@@ -707,12 +720,24 @@ func (r *Relay) fromNode(b *bridgeSession, frame []byte) {
 		return
 	}
 	l := g.lease
+	if reason, ok := nodepolicy.FromNode(frame); !ok {
+		r.refused(b.gateway, l.ID, l.Client, "from_node", reason)
+		return
+	}
 	l.touch(r.now())
 	l.framesFrom.Add(1)
 	l.bytesFrom.Add(int64(len(frame)))
 	r.m.framesFromNode.Add(1)
 	r.debugFrame(b.gateway, "from_node", frame)
 	l.holder.Deliver(frame)
+}
+
+// refused counts and logs a frame nodepolicy stopped. Never the payload,
+// even with payload debugging on: the reason names what it was.
+func (r *Relay) refused(gw, lease, client, dir, reason string) {
+	r.m.framesRefused.Add(1)
+	logging.Warnw(r.ctx, "refused a frame by node policy", "gateway", gw, "lease", lease, "client", client,
+		"dir", dir, "reason", reason)
 }
 
 func (r *Relay) debugFrame(gw, dir string, frame []byte) {
@@ -742,6 +767,7 @@ type MetricsSnapshot struct {
 	FramesToNode   int64 `json:"frames_to_node_total"`
 	FramesFromNode int64 `json:"frames_from_node_total"`
 	FramesDropped  int64 `json:"frames_dropped_total"`
+	FramesRefused  int64 `json:"frames_refused_total"`
 	AuthFailures   int64 `json:"auth_failures_total"`
 	AuthLockedIPs  int   `json:"auth_locked_ips"`
 }
@@ -752,7 +778,7 @@ func (r *Relay) Metrics() MetricsSnapshot {
 		BridgeSessions: r.m.bridgeSessions.Load(), LeasesTotal: r.m.leases.Load(),
 		ClientConns: r.m.clientConns.Load(), FramesToNode: r.m.framesToNode.Load(),
 		FramesFromNode: r.m.framesFromNode.Load(), FramesDropped: r.m.framesDropped.Load(),
-		AuthFailures: r.m.authFailures.Load(), AuthLockedIPs: r.lockout.locked(r.now()),
+		FramesRefused: r.m.framesRefused.Load(), AuthFailures: r.m.authFailures.Load(), AuthLockedIPs: r.lockout.locked(r.now()),
 	}
 	r.mu.Lock()
 	for _, g := range r.gws {

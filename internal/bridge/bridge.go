@@ -116,6 +116,7 @@ type Bridge struct {
 	framesFromNode  atomic.Int64
 	droppedFromNode atomic.Int64
 	droppedToNode   atomic.Int64
+	refusedFrames   atomic.Int64  // nodepolicy, either direction
 	diagSent        atomic.Uint64 // last log seq the relay has
 }
 
@@ -167,6 +168,8 @@ type Status struct {
 	FramesFromNode  int64
 	DroppedFromNode int64
 	DroppedToNode   int64
+	// RefusedFrames counts frames nodepolicy stopped, either way.
+	RefusedFrames int64
 
 	Paused     bool
 	PauseUntil time.Time // zero while paused: until resumed
@@ -189,6 +192,7 @@ func (b *Bridge) Status() Status {
 		FramesFromNode:  b.framesFromNode.Load(),
 		DroppedFromNode: b.droppedFromNode.Load(),
 		DroppedToNode:   b.droppedToNode.Load(),
+		RefusedFrames:   b.refusedFrames.Load(),
 		Paused:          b.pause.paused,
 		PauseUntil:      b.pause.until,
 		RelayClass:      b.relayClass,

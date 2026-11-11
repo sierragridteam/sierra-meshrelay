@@ -21,6 +21,7 @@ import (
 	"github.com/sierragridteam/sierra-meshrelay/internal/relaytest"
 	statefile "github.com/sierragridteam/sierra-meshrelay/internal/state"
 	"github.com/sierragridteam/sierra-meshrelay/meshproto"
+	"github.com/sierragridteam/sierra-meshrelay/nodepolicy"
 )
 
 const token = "smb_test-token"
@@ -533,4 +534,43 @@ func TestNodeOutageIsLoggedOnce(t *testing.T) {
 	if n := strings.Count(logs, "node unavailable"); n != 1 {
 		t.Fatalf("logged the outage %d times, want once:\n%s", n, logs)
 	}
+}
+
+func TestNodePolicyRefusesSecretsBothWays(t *testing.T) {
+	h := start(t, setup{})
+	s := h.session()
+	expectNode(t, s, meshproto.NodeConnected)
+	h.attach(s)
+
+	for _, f := range [][]byte{
+		{nodepolicy.CmdExportPrivateKey},
+		append([]byte{nodepolicy.CmdRunCLICommand}, "get wifi.pwd"...),
+	} {
+		if err := s.SendFrame(f); err != nil {
+			t.Fatal(err)
+		}
+		if got := expectFrame(t, s); !bytes.Equal(got, nodepolicy.Refusal()) {
+			t.Fatalf("refused command % x answered with % x", f[:1], got)
+		}
+	}
+	// The node never saw them: the next echo is this frame's.
+	f := []byte{0x20, 0x01}
+	if err := s.SendFrame(f); err != nil {
+		t.Fatal(err)
+	}
+	if got := expectFrame(t, s); !bytes.Equal(got, append([]byte{fakenode.EchoPrefix}, f...)) {
+		t.Fatalf("next frame came back as % x", got)
+	}
+
+	// A private key reply from the node never reaches the relay.
+	if err := h.node.Push(append([]byte{nodepolicy.RespPrivateKey}, make([]byte, 64)...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.node.Push([]byte{0x05, 0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if got := expectFrame(t, s); !bytes.Equal(got, []byte{0x05, 0x01}) {
+		t.Fatalf("after the dropped reply got % x", got)
+	}
+	h.waitFor("refusals counted", func(st bridge.Status) bool { return st.RefusedFrames == 3 })
 }

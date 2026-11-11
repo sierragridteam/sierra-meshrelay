@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/sierragridteam/sierra-meshrelay/nodepolicy"
 )
 
 // bufLogger is a prefab logging.Logger over zap, writing JSON to a buffer so
@@ -203,6 +205,15 @@ type fakeBridge struct {
 	ws       *websocket.Conn
 	controls chan map[string]any
 	closed   chan error
+	wmu      sync.Mutex // one writer at a time: the echo loop and send
+}
+
+// send pushes a frame as if the node sent it unprompted.
+func (b *fakeBridge) send(frame []byte) {
+	b.t.Helper()
+	b.wmu.Lock()
+	defer b.wmu.Unlock()
+	require.NoError(b.t, b.ws.WriteMessage(websocket.BinaryMessage, frame))
 }
 
 func hello(gw, pubkey string) map[string]any {
@@ -239,7 +250,9 @@ func (b *fakeBridge) loop() {
 			return
 		}
 		if kind == websocket.BinaryMessage {
+			b.wmu.Lock()
 			_ = b.ws.WriteMessage(websocket.BinaryMessage, append([]byte{0x80}, data...))
+			b.wmu.Unlock()
 			continue
 		}
 		var m map[string]any
@@ -758,12 +771,13 @@ func TestFrameLimits(t *testing.T) {
 	expectControl(t, c, "lease")
 	start := time.Now()
 	for i := 0; i < 25; i++ {
-		require.NoError(t, c.WriteMessage(websocket.BinaryMessage, []byte{byte(i)}))
+		// Sequence in the second byte: some first bytes are refused commands.
+		require.NoError(t, c.WriteMessage(websocket.BinaryMessage, []byte{0x20, byte(i)}))
 	}
 	for i := 0; i < 25; i++ {
 		_, frame, err := read(t, c)
 		require.NoError(t, err)
-		require.Equal(t, []byte{0x80, byte(i)}, frame)
+		require.Equal(t, []byte{0x80, 0x20, byte(i)}, frame)
 	}
 	assert.GreaterOrEqual(t, time.Since(start), 350*time.Millisecond)
 }
@@ -988,4 +1002,60 @@ func TestInProcessHolderSendAndPreempt(t *testing.T) {
 	_, err = h.relay.Acquire(LeaseRequest{Gateway: "gw-a", Client: "poller", Role: RoleAgent,
 		Priority: PriorityBackground, Holder: newChanHolder()})
 	assert.ErrorIs(t, err, ErrBusy)
+}
+
+func TestNodePolicyRefusesSecretsBothWays(t *testing.T) {
+	h := newHarness(t, Config{})
+	tok := h.createGateway("gw-a")
+	b := h.bridge("gw-a", tok, pubkeyA)
+	// The policy applies to every remote session, admins included.
+	c := h.client("gw-a", h.admin, "")
+	expectControl(t, c, "lease")
+	b.expect("attach")
+
+	next := func() []byte {
+		t.Helper()
+		_, frame, err := read(t, c)
+		require.NoError(t, err)
+		return frame
+	}
+	for _, f := range [][]byte{
+		{nodepolicy.CmdExportPrivateKey},
+		append([]byte{nodepolicy.CmdRunCLICommand}, " ab|get wifi.pwd"...),
+	} {
+		require.NoError(t, c.WriteMessage(websocket.BinaryMessage, f))
+		assert.Equal(t, nodepolicy.Refusal(), next(), "refused with the firmware's disabled reply")
+	}
+	// The refused frames never reached the bridge: the next echo is this one.
+	require.NoError(t, c.WriteMessage(websocket.BinaryMessage, []byte{0x16, 0x03}))
+	assert.Equal(t, []byte{0x80, 0x16, 0x03}, next())
+
+	// A private key reply from the node is dropped; the frame after it arrives.
+	b.send(append([]byte{nodepolicy.RespPrivateKey}, make([]byte, 64)...))
+	b.send([]byte{0x05, 0x01})
+	assert.Equal(t, []byte{0x05, 0x01}, next())
+
+	assert.EqualValues(t, 3, h.relay.Metrics().FramesRefused)
+}
+
+func TestNodePolicyAppliesToInProcessHolders(t *testing.T) {
+	h := newHarness(t, Config{})
+	tok := h.createGateway("gw-a")
+	b := h.bridge("gw-a", tok, pubkeyA)
+	holder := newChanHolder()
+	l, err := h.relay.Acquire(LeaseRequest{Gateway: "gw-a", Client: "poller", Role: RoleAgent,
+		Priority: PriorityBackground, Holder: holder})
+	require.NoError(t, err)
+	b.expect("attach")
+
+	require.NoError(t, h.relay.Send(l, []byte{nodepolicy.CmdFactoryReset}), "a refusal doesn't end the lease")
+	require.NoError(t, h.relay.Send(l, []byte{0x01}))
+	for _, want := range [][]byte{nodepolicy.Refusal(), {0x80, 0x01}} {
+		select {
+		case f := <-holder.frames:
+			assert.Equal(t, want, f)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no frame %x delivered", want)
+		}
+	}
 }
