@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -292,11 +291,15 @@ func (b *Bridge) handleControl(s *session, data []byte) {
 func (b *Bridge) logRelayError(data []byte) {
 	var m meshproto.Error
 	_ = json.Unmarshal(data, &m)
-	lvl := slog.LevelWarn
-	if m.Code == meshproto.ErrPubkeyMismatch || m.Code == meshproto.ErrPubkeyUnverified {
-		lvl = slog.LevelError
+	switch m.Code {
+	case meshproto.ErrPubkeyMismatch:
+		b.log.Error("SIERRA has a different node on record for this gateway; "+
+			"if you replaced the node, run meshbridge change-node on this computer", "code", m.Code)
+	case meshproto.ErrPubkeyUnverified:
+		b.log.Error("relay reported an error", "code", m.Code)
+	default:
+		b.log.Warn("relay reported an error", "code", m.Code)
 	}
-	b.log.Log(context.Background(), lvl, "relay reported an error", "code", m.Code)
 }
 
 func (b *Bridge) writeLoop(ctx context.Context, s *session) error {

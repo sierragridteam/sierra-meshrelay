@@ -103,6 +103,17 @@ meshbridge repeater remove "Ridge RPT"
 
 SIERRA then logs in to the repeater over the mesh to read its status (battery, airtime, packet counts) for the Grid. Any SIERRA gateway in range may be used, not only yours. Give the guest password if the repeater has one: a guest can only read status. The relay checks the password by logging in before it stores it (encrypted). Removing a repeater deletes its password from SIERRA.
 
+## Changing the node
+
+To use a different node (a replacement, or the same one reflashed with a new identity), put it on this network and run, from an elevated PowerShell:
+
+```powershell
+meshbridge change-node                    # finds the nodes on this network and asks which one
+meshbridge change-node -host 192.168.1.60 # or name its address
+```
+
+It tells SIERRA, saves the new node in the config and restarts the service; the gateway keeps its name and shared repeaters. See [linux.md](linux.md#changing-the-node) for details.
+
 ## Upgrading
 
 Bridges update themselves (v0.7.0 and later): when SIERRA rolls out a release, the service downloads it, checks its signature against the release key built into meshbridge, and once nobody is using the node marks it ready. A scheduled task, `SIERRA\meshbridge update`, runs every 5 minutes as SYSTEM, and installs a ready update: it stops the service, swaps the binary and starts it again. The log shows each step. To turn it off, set `auto_update = false` under `[host]` in the config.

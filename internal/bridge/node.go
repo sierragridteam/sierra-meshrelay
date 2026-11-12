@@ -45,7 +45,12 @@ func (b *Bridge) runNode(ctx context.Context) {
 		res := b.serveLink(ctx, link)
 		switch res {
 		case linkMismatch:
-			b.waitOrRelink(ctx, b.opts.MismatchRetry)
+			if _, ok := b.opts.Opener.(nodelink.WrongNoder); ok {
+				// It will scan for the right node next: no need to wait long.
+				b.waitOrRelink(ctx, b.opts.NodeRetryMin)
+			} else {
+				b.waitOrRelink(ctx, b.opts.MismatchRetry)
+			}
 		case linkFailedIdentify:
 			backoff()
 		case linkServed:
@@ -137,10 +142,14 @@ func (b *Bridge) serveLink(ctx context.Context, link nodelink.Link) linkResult {
 	if want := b.opts.Config.Node.ExpectedPubkey; want != "" && id.Pubkey != want {
 		node.State = meshproto.NodeMismatch
 		if prev, _, _, _ := b.nodeSnapshot(); prev != node {
-			b.log.Warn("this isn't the node SIERRA expects; contact your SIERRA contact",
-				"pubkey", id.Pubkey, "expected", want, "name", id.Name)
+			b.log.Warn("this isn't the node this bridge is set up for; looking for it on the network. "+
+				"If you replaced the node, run meshbridge change-node on this computer",
+				"pubkey", id.Pubkey, "expected", want, "name", id.Name, "detail", link.Detail())
 		}
 		b.setNode(node, nil)
+		if w, ok := b.opts.Opener.(nodelink.WrongNoder); ok {
+			w.WrongNode()
+		}
 		return linkMismatch
 	}
 	kv := []any{"link", link.Kind(), "detail", link.Detail(), "name", id.Name, "pubkey", id.Pubkey, "fw", id.FW, "model", id.Model}

@@ -32,6 +32,9 @@ func Install(exe, configPath string) (Installed, error) {
 	return Installed{Binary: BinaryPath, CheckOn: []string{"sudo meshbridge status", "journalctl -u meshbridge -f"}}, nil
 }
 
+// Restart restarts the installed service, so it reads its config again.
+func Restart() error { return (&Systemd{}).Restart() }
+
 // Uninstall stops and removes the systemd service.
 func Uninstall() error { return (&Systemd{}).Uninstall() }
 

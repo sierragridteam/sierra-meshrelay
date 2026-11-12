@@ -193,6 +193,25 @@ func schtasks(args ...string) error {
 	return nil
 }
 
+// Restart stops the installed service and starts it again, so it reads its
+// config again; ErrNotInstalled if there's no service.
+func Restart() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connecting to the service manager: %w", err)
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(ServiceName)
+	if err != nil {
+		return ErrNotInstalled
+	}
+	defer s.Close()
+	if err := stop(s); err != nil {
+		return err
+	}
+	return start(s)
+}
+
 // StopService stops the installed service and waits for it.
 func StopService() error {
 	m, err := mgr.Connect()

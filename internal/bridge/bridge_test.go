@@ -265,7 +265,7 @@ func TestPubkeyMismatch(t *testing.T) {
 	if err := s.NoFrame(200 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h.logs.String(), "isn't the node SIERRA expects") {
+	if !strings.Contains(h.logs.String(), "isn't the node this bridge is set up for") {
 		t.Error("mismatch not logged")
 	}
 }

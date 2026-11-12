@@ -36,6 +36,13 @@ type Opener interface {
 	Open(ctx context.Context) (Link, error)
 }
 
+// WrongNoder is an Opener that can be told its last link reached a node
+// with the wrong pubkey, so it looks elsewhere next time (see
+// Discover.WrongNode).
+type WrongNoder interface {
+	WrongNode()
+}
+
 // ErrNotConfigured means the opener has nothing to try (e.g. no TCP host).
 var ErrNotConfigured = errors.New("nodelink: no node address configured")
 

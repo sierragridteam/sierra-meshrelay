@@ -100,7 +100,7 @@ Behaviour the live relay has that the bridge must handle:
 - **Backpressure, not drops.** The relay throttles each connection to about 50 messages/s, burst 100, by reading more slowly. A node dumping its contact list will see the WebSocket write block. Let it block, and keep a bounded buffer between the node reader and the WebSocket writer, so a slow relay slows the node read instead of growing memory. Never drop frames to keep up.
 - **Close codes 1001 (relay restarting) and 1009 (text over 8 KiB).** Reconnect with backoff. For 1009, also log it as a bug, since the bridge's control messages are tiny.
 - **`error` messages.** Log the `code`. Never display or depend on `message`, which is free text. Codes the bridge may see: `hello_required`, `unsupported_protocol`, `frame_too_large`, `pubkey_mismatch`, `pubkey_unverified`.
-- **Pubkey pinning.** The relay pins a node pubkey per gateway. A pubkey mismatch means the wrong node is plugged in, or the node was reflashed with a new identity. Report it in status as "This isn't the node SIERRA expects" with a plain next step: contact your SIERRA contact. Never try to work around it.
+- **Pubkey pinning.** The relay pins a node pubkey per gateway. A pubkey mismatch means the wrong node is plugged in, or the node was reflashed with a new identity. Report it in status as "This isn't the node this bridge is set up for" with a plain next step: if the host replaced the node, `meshbridge change-node`. Never switch nodes without the host asking.
 
 Library: `github.com/coder/websocket`.
 

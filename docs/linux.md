@@ -99,11 +99,22 @@ SIERRA then logs in to the repeater over the mesh to read its status (battery, a
 
 The node gets its address from your router by DHCP. If that address changes, the bridge tries, in order:
 
-1. the configured address,
-2. the last address that worked (saved in `/etc/meshbridge/state.json`),
+1. the last address that worked (saved in `/etc/meshbridge/state.json`),
+2. the configured address,
 3. a scan of the local network for the node with the pubkey in its config.
 
-It scans at most once a minute. If the node is on a different subnet from the bridge, set `node.tcp_host` in the config, or reserve the node's address on your router.
+If an address answers with a different node (two nodes on one network can swap addresses), the bridge forgets it and scans straight away. Otherwise it scans at most once a minute. If the node is on a different subnet from the bridge, set `node.tcp_host` in the config, or reserve the node's address on your router.
+
+## Changing the node
+
+To use a different node (a replacement, or the same one reflashed with a new identity), put it on this network and run:
+
+```sh
+sudo meshbridge change-node            # finds the nodes on this network and asks which one
+sudo meshbridge change-node -host 192.168.1.60   # or name its address
+```
+
+It shows the switch and asks you to confirm, then tells SIERRA, saves the new node in the config and restarts the service. The gateway keeps its name, token and shared repeaters. SIERRA records the change in the gateway's logs. The new node hasn't heard your repeaters yet, so `repeater add` lists them once it hears their adverts.
 
 ## Upgrading
 
@@ -124,6 +135,6 @@ sudo rm -r /etc/meshbridge        # only if this machine is leaving SIERRA (ask 
 |---|---|
 | `status` is red, "Can't reach SIERRA" | Check the machine's internet. The bridge keeps retrying with backoff, up to 1 min apart. |
 | Red, "SIERRA didn't accept this bridge's credentials" | The token was rotated or revoked. Ask your SIERRA contact, then `sudo meshbridge setup -repair`. The bridge waits 15 min between attempts, so it doesn't trip the relay's lockout. |
-| Red, "This isn't the node SIERRA expects" | A different node answered. Check the right node is on and on this network. |
+| Red, "This isn't the node this bridge is set up for" | A different node answered. If you replaced the node, run `sudo meshbridge change-node`. Otherwise check the right node is on and on this network. |
 | Amber, "your node isn't connected" | The node is off, out of WiFi range, or another app is connected to it (a node allows one connection). The logs show what the bridge tried. |
 | `install`: "systemd (systemctl) not found" | Run `meshbridge run -config /etc/meshbridge/meshbridge.toml` under your own supervisor instead. |

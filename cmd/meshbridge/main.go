@@ -46,6 +46,8 @@ On the bridge's computer (with sudo, or as an administrator on Windows):
                                   Stop sharing the node (default 1h)
   meshbridge resume               Start sharing again
   meshbridge reconnect            Look for the node now instead of waiting for the next retry
+  meshbridge change-node [-host addr]
+                                  Switch this bridge to a different node (a replacement or a reflashed one)
   meshbridge repeater add|list|remove
                                   Share your repeaters with SIERRA
 
@@ -79,6 +81,8 @@ func main() {
 		err = cmdResume(os.Args[2:])
 	case "reconnect":
 		err = cmdReconnect(os.Args[2:])
+	case "change-node":
+		err = cmdChangeNode(os.Args[2:])
 	case "connect":
 		err = cmdConnect(os.Args[2:])
 	case "repeater", "repeaters":
