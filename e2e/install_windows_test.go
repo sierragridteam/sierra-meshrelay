@@ -304,6 +304,12 @@ func TestWindowsService(t *testing.T) {
 	waitConnected(t, lr, "win-svc", false, 30*time.Second)
 	waitConnected(t, lr, "win-svc", true, 60*time.Second)
 
+	// change-node restarts the service so it reads its config again.
+	if err := msvc.Restart(); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	waitConnected(t, lr, "win-svc", true, 60*time.Second)
+
 	// Re-running the installer upgrades in place: stop, replace, start.
 	if out, err := env.run(); err != nil || !strings.Contains(out, "already paired") || !strings.Contains(out, "Installed and started") {
 		t.Fatalf("upgrade: %v\n%s", err, out)
