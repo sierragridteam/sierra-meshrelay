@@ -14,7 +14,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,10 +44,7 @@ type localRelay struct {
 func startRelay(t *testing.T, tune ...func(*relay.Config)) *localRelay {
 	t.Helper()
 	ctx := logging.With(context.Background(), logging.NewDevLogger())
-	st, err := relay.OpenStore(ctx, filepath.Join(t.TempDir(), "relay.db"), time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openStore(t, ctx)
 	admin, _ := relay.MintToken(relay.ClientTokenPrefix)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

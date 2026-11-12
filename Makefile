@@ -29,7 +29,7 @@ dynamo-down:
 	-docker rm -f meshrelay-dynamo >/dev/null 2>&1
 
 test-dynamo: dynamo-up
-	MESHRELAY_TEST_DYNAMO_ENDPOINT=$(DYNAMO_ENDPOINT) go test -race -count=1 ./relay/dynamostore/
+	MESHRELAY_TEST_DYNAMO_ENDPOINT=$(DYNAMO_ENDPOINT) go test -race -count=1 ./relay/dynamostore/ ./e2e/
 
 # Runs against the production relay on the bridge-dev-sim gateway with a fake
 # node. Uses the parent workspace .envrc through direnv
