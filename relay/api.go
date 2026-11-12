@@ -86,9 +86,12 @@ func (r *Relay) ServerOptions() []prefab.ServerOption {
 		prefab.WithJSONHandler("GET "+api+"/gateway/repeaters", j(r.bridgeAuthed(r.apiGatewayListRepeaters))),
 		prefab.WithJSONHandler("GET "+api+"/gateway/repeaters/nearby", j(r.bridgeAuthed(r.apiGatewayNearbyRepeaters))),
 		prefab.WithJSONHandler("POST "+api+"/gateway/repeaters", j(r.bridgeAuthed(r.apiGatewayAddRepeater))),
+		// The same, answered as a stream of steps (see streamJSON).
+		prefab.WithHTTPHandlerFunc("POST "+api+"/gateway/repeaters/stream", h(r.streamJSON(r.bridgeAuthed(r.apiGatewayAddRepeater)))),
 		prefab.WithJSONHandler("DELETE "+api+"/gateway/repeaters/{pubkey}", j(r.bridgeAuthed(r.apiGatewayRemoveRepeater))),
 		prefab.WithJSONHandler("GET "+api+"/repeaters", j(r.admin(r.apiListRepeaters))),
 		prefab.WithJSONHandler("POST "+api+"/repeaters", j(r.admin(r.apiAddRepeater))),
+		prefab.WithHTTPHandlerFunc("POST "+api+"/repeaters/stream", h(r.streamJSON(r.admin(r.apiAddRepeater)))),
 		prefab.WithJSONHandler("DELETE "+api+"/repeaters/{pubkey}", j(r.admin(r.apiRemoveRepeater))),
 	}
 }

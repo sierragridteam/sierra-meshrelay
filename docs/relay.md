@@ -61,7 +61,7 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` toke
 | `POST /gateways/<name>/rotate-token` | New bridge token (returned once). Old one stops working, and the live session is closed with 4001. |
 | `POST /gateways/<name>/accept-pubkey` | Accept the node's current pubkey after a mismatch |
 | `POST /gateways/<name>/relink` | Send `relink` to the bridge |
-| `GET /gateways/<name>/repeaters/nearby` | The repeaters in that gateway's node's contacts, as the bridge route `GET gateway/repeaters/nearby` returns them. For an admin sharing a repeater through any host's gateway. Takes a short lease on the node; recorded as a `repeaters_listed` event on the gateway. |
+| `GET /gateways/<name>/repeaters/nearby` | The repeaters in that gateway's node's contacts, as the bridge route `GET gateway/repeaters/nearby` returns them. For an admin sharing a repeater through any host's gateway. Takes a short lease on the node (client `repeater-list`); recorded as a `repeaters_listed` event on the gateway. |
 | `DELETE /gateways/<name>` | Revoke and remove |
 | `POST /clients` `{name, role}` / `DELETE /clients/<name>` | Issue and revoke client tokens |
 | `GET /leases` | Current and recent leases (audit) |
@@ -73,6 +73,7 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` toke
 | `GET /bridge-update` / `PUT /bridge-update` `{version, gateways?}` | The release bridges should run, offered with `update_available` (see PROTOCOL.md). `gateways` limits it (a canary first); `version: ""` stops offering. `PUT` answers with the gateways it was sent to right away. Config `ReleaseBaseURL` says where releases live. |
 | `GET /repeaters` | Shared repeaters (never a password): name, access (`guest`/`admin`), who shared it, last successful read, the gateway it came through, the last problem |
 | `POST /repeaters` `{pubkey, gateway, password, name?}` | Share a repeater. The relay logs in to it through `gateway`'s node and reads its status first; the password is stored only if that works. Recorded as a `repeater_check` event on the gateway. |
+| `POST /repeaters/stream` | The same, answered as a stream of steps: see `POST gateway/repeaters/stream` in [PROTOCOL.md](../PROTOCOL.md). Each step is recorded as a `repeater_add` event on the gateway. |
 | `DELETE /repeaters/<pubkey>` | Stop sharing a repeater and delete its password |
 
 A minimal read-only status page (gateways, online/offline, last seen) is a nice-to-have and is useful during the pilot.

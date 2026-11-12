@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-// checkTimeout bounds a request that logs in to a repeater over the mesh.
-const checkTimeout = 3 * time.Minute
+// checkTimeout bounds a request that logs in to a repeater over the mesh:
+// a login and a status read, each retried by flood, can take 3 minutes.
+const checkTimeout = 5 * time.Minute
 
 // Repeater is a repeater shared with SIERRA (never its password).
 type Repeater struct {
@@ -110,11 +111,11 @@ func (c *Client) MyRepeaters(ctx context.Context) ([]Repeater, error) {
 }
 
 // ShareRepeater checks password through the bridge's node, then shares the
-// repeater (bridge token).
-func (c *Client) ShareRepeater(ctx context.Context, pubkey, name, password string) (SharedRepeater, error) {
+// repeater (bridge token). progress, if set, hears each step of the check.
+func (c *Client) ShareRepeater(ctx context.Context, pubkey, name, password string, progress func(string)) (SharedRepeater, error) {
 	var out SharedRepeater
 	body := map[string]string{"pubkey": pubkey, "name": name, "password": password}
-	return out, c.slow().do(ctx, http.MethodPost, "/gateway/repeaters", body, &out)
+	return out, c.slow().doStream(ctx, "/gateway/repeaters", body, &out, progress)
 }
 
 // UnshareRepeater removes a repeater this bridge shared (bridge token).
@@ -131,11 +132,11 @@ func (c *Client) Repeaters(ctx context.Context) ([]Repeater, error) {
 }
 
 // AddRepeater checks password through gateway's node, then shares the
-// repeater (admin).
-func (c *Client) AddRepeater(ctx context.Context, pubkey, gateway, password string) (SharedRepeater, error) {
+// repeater (admin). progress, if set, hears each step of the check.
+func (c *Client) AddRepeater(ctx context.Context, pubkey, gateway, password string, progress func(string)) (SharedRepeater, error) {
 	var out SharedRepeater
 	body := map[string]string{"pubkey": pubkey, "gateway": gateway, "password": password}
-	return out, c.slow().do(ctx, http.MethodPost, "/repeaters", body, &out)
+	return out, c.slow().doStream(ctx, "/repeaters", body, &out, progress)
 }
 
 // RemoveRepeater removes any shared repeater (admin).

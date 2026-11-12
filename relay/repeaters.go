@@ -320,6 +320,8 @@ type CheckRequest struct {
 	// login floods at once: for a link whose direct route just went
 	// unanswered.
 	FloodFirst bool
+	// Progress, if set, hears each step: for a person waiting on the check.
+	Progress func(step string)
 }
 
 // ErrNotKnown means the gateway's node doesn't have the repeater as a
@@ -338,8 +340,13 @@ func (r *Relay) CheckRepeater(ctx context.Context, req CheckRequest) (RepeaterCh
 	pubkey := req.Pubkey
 	start := r.now()
 	step, pathKnown := "contact", false
+	say := req.Progress
+	if say == nil {
+		say = func(string) {}
+	}
 	err := r.Use(ctx, LeaseRequest{Gateway: req.Gateway, Client: req.Client, Role: RoleAgent, Priority: req.Priority},
 		func(ctx context.Context, s *meshops.Session) error {
+			say("using " + req.Gateway + "'s node")
 			if _, err := s.AppStart(ctx, "sierra-relay"); err != nil {
 				return err
 			}
@@ -348,6 +355,7 @@ func (r *Relay) CheckRepeater(ctx context.Context, req CheckRequest) (RepeaterCh
 			case stderrors.Is(err, meshops.ErrNotFound) && req.OnlyIfKnown:
 				return ErrNotKnown
 			case stderrors.Is(err, meshops.ErrNotFound):
+				say("adding the repeater to the node's contacts for the check (removed after)")
 				if err := s.AddContact(ctx, meshops.Contact{Pubkey: pubkey, Type: meshops.TypeRepeater, Name: req.Name}); err != nil {
 					return err
 				}
@@ -388,9 +396,11 @@ func (r *Relay) CheckRepeater(ctx context.Context, req CheckRequest) (RepeaterCh
 				res.PathReset = true
 				logging.Infow(r.ctx, "repeater check: direct route unanswered; reset it and flooding",
 					"gateway", req.Gateway, "repeater", pubkey)
+				say("no answer over the node's stored route to the repeater; resetting it and trying again by flood")
 				return true
 			}
 			step = "login"
+			say("logging in to the repeater over the mesh")
 			login, err := s.Login(ctx, pubkey, req.Password)
 			if flood(err) {
 				login, err = s.Login(ctx, pubkey, req.Password)
@@ -400,6 +410,7 @@ func (r *Relay) CheckRepeater(ctx context.Context, req CheckRequest) (RepeaterCh
 			}
 			res.Access = login.Access()
 			step = "status"
+			say("logged in as " + res.Access + "; reading the repeater's status")
 			st, err := s.Status(ctx, pubkey)
 			if flood(err) {
 				st, err = s.Status(ctx, pubkey)
@@ -408,6 +419,7 @@ func (r *Relay) CheckRepeater(ctx context.Context, req CheckRequest) (RepeaterCh
 				return err
 			}
 			res.Status = &st
+			say("reading the repeater's telemetry")
 			if tm, err := s.Telemetry(ctx, pubkey); err == nil {
 				res.Telemetry = &tm
 			}
@@ -487,7 +499,7 @@ func (r *Relay) apiNearbyRepeaters(req *http.Request, who *ClientRecord) (any, e
 // nearbyRepeaters reads the repeaters in gateway's node's contacts.
 func (r *Relay) nearbyRepeaters(ctx context.Context, gateway string) (any, error) {
 	var contacts []meshops.Contact
-	err := r.Use(ctx, LeaseRequest{Gateway: gateway, Client: "repeater-check", Role: RoleAgent, Priority: PriorityNormal},
+	err := r.Use(ctx, LeaseRequest{Gateway: gateway, Client: "repeater-list", Role: RoleAgent, Priority: PriorityNormal},
 		func(ctx context.Context, s *meshops.Session) error {
 			if _, err := s.AppStart(ctx, "sierra-relay"); err != nil {
 				return err
@@ -575,11 +587,21 @@ func (r *Relay) addRepeater(ctx context.Context, body addRepeaterBody, gateway, 
 	if existing, err := r.store.Repeater(pk); err == nil && byGateway != "" && existing.AddedByGateway != byGateway {
 		return nil, conflict("this repeater is already shared with SIERRA by someone else")
 	}
-	check, err := r.CheckRepeater(ctx, CheckRequest{Gateway: gateway, Client: "repeater-check", Priority: PriorityNormal,
-		Pubkey: pk, Name: strings.TrimSpace(body.Name), Password: body.Password})
-	if err != nil {
-		return nil, repeaterErr(err)
+	// Each step goes to the caller, if it is streaming (progressFrom), and
+	// to the gateway's events, so admin logs shows where a check stopped.
+	stream := progressFrom(ctx)
+	progress := func(step string) {
+		stream(step)
+		r.event(gateway, "repeater_add", step)
 	}
+	check, err := r.CheckRepeater(ctx, CheckRequest{Gateway: gateway, Client: "repeater-check", Priority: PriorityNormal,
+		Pubkey: pk, Name: strings.TrimSpace(body.Name), Password: body.Password, Progress: progress})
+	if err != nil {
+		err = repeaterErr(err)
+		r.event(gateway, "repeater_add", "failed: "+err.Error())
+		return nil, err
+	}
+	progress("checked; sharing it with SIERRA")
 	sealed, err := r.seal(pk, body.Password)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)

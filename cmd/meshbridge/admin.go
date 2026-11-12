@@ -436,8 +436,8 @@ func cmdAdmin(args []string) (err error) {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Logging in to the repeater through %s over the mesh (this can take up to a minute)…\n", gateway)
-			res, err := c.AddRepeater(ctx, pubkey, gateway, pw)
+			fmt.Printf("Checking the password through %s's node, over the mesh. This usually takes under a minute,\nand gives up after 5.\n", gateway)
+			res, err := c.AddRepeater(ctx, pubkey, gateway, pw, printStep)
 			if err != nil {
 				return err
 			}
