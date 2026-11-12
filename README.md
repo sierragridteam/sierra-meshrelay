@@ -312,6 +312,7 @@ To ship a relay change:
 | Command | What it runs | Needs |
 |---|---|---|
 | `make test` | Every package's tests, plus the `e2e/` tests that run the real relay and real bridge in one process, with a fake node and a TCP client through `connect`. They cover the full chain, throttling, pinning, leases and preemption, pause, pairing, invites, updates and shared repeaters. | Nothing |
+| `make test-dynamo` | The DynamoDB store's tests (the shared store conformance suite, the instance lease, the relay.db import) and the local `e2e/` suite with the relay on DynamoDB. See [docs/dynamodb.md](docs/dynamodb.md). | Docker (starts `amazon/dynamodb-local`) |
 | `make test-live` | The real bridge and a fake node against the **production** relay on `bridge-dev-sim`: leases, round trips, a 300-frame burst, renew, busy, and the chain through `connect`. | Parent workspace `.envrc` (loaded by direnv) with `RELAY`, `SIM_BRIDGE_TOKEN`, `CLIENT_TOKEN` |
 | ↳ admin checks | Relink via the admin API | `ADMIN` too; these skip without it |
 
@@ -327,6 +328,7 @@ Live-test rules:
 - [PROTOCOL.md](PROTOCOL.md): the wire protocol. It's the canonical spec; the Go types in `meshproto/` are tested against its examples.
 - [docs/linux.md](docs/linux.md), [docs/windows.md](docs/windows.md): running a bridge as a service.
 - [docs/relay.md](docs/relay.md): the relay's API, design decisions and deployment requirements.
+- [docs/dynamodb.md](docs/dynamodb.md): the relay's DynamoDB store, its instance lease and moving a relay.db to it.
 - [docs/mesh-bridge-handoff.md](docs/mesh-bridge-handoff.md): the bridge's original design and milestones.
 
 ## Layout
@@ -335,6 +337,8 @@ Live-test rules:
 |---|---|
 | `PROTOCOL.md`, `meshproto/` | The wire protocol spec and its Go types |
 | `relay/` | The relay: sessions, leases, pinning, pairing, shared repeaters, SQLite store, admin API |
+| `relay/dynamostore`, `relay/storetest` | The DynamoDB store, and the conformance suite both stores pass |
+| `cmd/relaydynamo` | One-off relay.db to DynamoDB import and verification |
 | `meshops/` | Companion operations over a lease (contacts, repeater login and status), and `meshsim`, a simulated mesh for tests |
 | `cmd/meshbridge` | The CLI: host commands, `connect`, `admin` |
 | `cmd/devrelay` | The real relay on localhost, for development |
