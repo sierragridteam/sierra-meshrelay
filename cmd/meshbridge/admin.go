@@ -34,6 +34,8 @@ Usage:
   meshbridge admin remove <gateway> [-yes]       Delete a gateway (revokes its token, disconnects its bridge)
   meshbridge admin logs <gateway> [-n 50] [-f]   A bridge's recent log lines and connects/disconnects
   meshbridge admin reconnect <gateway> [-yes]    Have a bridge look for its node now (ends any session using it)
+  meshbridge admin accept-node <gateway> [-yes]  Accept the node a gateway's bridge reports when it isn't the one
+                                                 on record (a host can switch nodes themselves: meshbridge change-node)
   meshbridge admin update-bridges [vX.Y.Z|off] [-gateway a,b]
                                                  Show the release offered to bridges; with a version, offer it
                                                  (bridges install it when idle; never a downgrade)
@@ -70,7 +72,7 @@ func cmdAdmin(args []string) (err error) {
 	days := fs.Float64("days", 7, "invite: days until it expires (max 30)")
 	node := fs.String("node", "", "invite: only redeemable by the node with this pubkey")
 	note := fs.String("note", "", "invite: a note for admins")
-	yes := fs.Bool("yes", false, "remove, reconnect, repeater add: don't ask for confirmation")
+	yes := fs.Bool("yes", false, "remove, reconnect, accept-node, repeater add: don't ask for confirmation")
 	lines := fs.Int("n", 50, "logs: how many lines")
 	follow := fs.Bool("f", false, "logs: keep printing new lines")
 	only := fs.String("gateway", "", "update-bridges: only these gateways (comma-separated)")
@@ -287,6 +289,13 @@ func cmdAdmin(args []string) (err error) {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", g.Name, bridge, node, version, seen, inUse)
 		}
 		w.Flush()
+		for _, g := range gs {
+			if g.PubkeyStatus == "mismatch" {
+				fmt.Printf("\n%s's bridge reports a node that isn't the one on record, so SIERRA can't use it. If its host\n"+
+					"replaced the node on purpose, they can run meshbridge change-node, or accept it from here:\n"+
+					"  meshbridge admin accept-node %s\n", g.Name, g.Name)
+			}
+		}
 		return nil
 
 	case "update-bridges":
@@ -326,6 +335,40 @@ func cmdAdmin(args []string) (err error) {
 		fmt.Printf("Offering %s. Sent now to: %s\n", u.Version, dashList(offered))
 		fmt.Println("Each bridge verifies the release's signature, waits until nobody is using its node, then")
 		fmt.Println("installs it (bridges installed before v0.7.0 need the installer run once). Watch with: meshbridge admin gateways")
+		return nil
+
+	case "accept-node":
+		name := arg(0)
+		if name == "" {
+			return fmt.Errorf("usage: meshbridge admin accept-node <gateway> [-yes]")
+		}
+		g, err := findGateway(ctx, c, name)
+		if err != nil {
+			return err
+		}
+		if g.PubkeyStatus != "mismatch" || g.MismatchPubkey == "" {
+			return fmt.Errorf("%s's bridge reports the node on record (%s); there's nothing to accept", name, shortPubkey(g.PinnedPubkey))
+		}
+		reported := shortPubkey(g.MismatchPubkey)
+		if g.Node != nil && g.Node.Pubkey == g.MismatchPubkey && g.Node.Name != "" {
+			reported = nodeLabel(g.Node.Name, g.Node.Model) + " (" + reported + ")"
+		}
+		fmt.Printf("Gateway %s\n  on record:      %s\n  bridge reports: %s\n", name, shortPubkey(g.PinnedPubkey), reported)
+		fmt.Println("Accepting makes the reported node the gateway's node; SIERRA can use it again straight away.")
+		if !*yes {
+			if !isTerminal(os.Stdin) {
+				return fmt.Errorf("pass -yes to accept %s's node without a prompt", name)
+			}
+			fmt.Print("Accept it? [y/N]: ")
+			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+			if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+				return fmt.Errorf("not accepted")
+			}
+		}
+		if err := c.AcceptPubkey(ctx, name); err != nil {
+			return err
+		}
+		fmt.Printf("Accepted: %s now uses %s.\n", name, reported)
 		return nil
 
 	case "reconnect":
@@ -486,7 +529,7 @@ func findGateway(ctx context.Context, c *admin.Client, name string) (admin.Gatew
 // adminCommands are the admin subcommands, checked before the token is
 // loaded so a typo isn't reported as a missing token.
 var adminCommands = []string{"pairings", "approve", "deny", "invite", "invites", "revoke", "remove", "rm",
-	"gateways", "update-bridges", "logs", "reconnect", "repeaters", "repeater"}
+	"gateways", "update-bridges", "logs", "reconnect", "accept-node", "repeaters", "repeater"}
 
 // isPubkey reports whether s is a full 64-hex-character pubkey.
 func isPubkey(s string) bool {
@@ -521,6 +564,17 @@ func dash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// shortPubkey abbreviates a pubkey for display.
+func shortPubkey(pk string) string {
+	if pk == "" {
+		return "none"
+	}
+	if len(pk) > 12 {
+		return pk[:12] + "…"
+	}
+	return pk
 }
 
 func nodeLabel(name, model string) string {

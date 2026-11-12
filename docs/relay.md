@@ -59,7 +59,7 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` toke
 | `GET /gateways/<name>` | Detail, including recent connect/disconnect events and last `stats` |
 | `GET /gateways/<name>/logs?after=&limit=` | The bridge's recent log lines (`log` messages; newest 1,000 kept) and the relay's events for it. Admins only: they hold LAN addresses and host names. |
 | `POST /gateways/<name>/rotate-token` | New bridge token (returned once). Old one stops working, and the live session is closed with 4001. |
-| `POST /gateways/<name>/accept-pubkey` | Accept the node's current pubkey after a mismatch |
+| `POST /gateways/<name>/accept-pubkey` | Accept the node's current pubkey after a mismatch (`meshbridge admin accept-node`). A host can also switch their own gateway's node with `POST gateway/node` (`meshbridge change-node`); see PROTOCOL.md. |
 | `POST /gateways/<name>/relink` | Send `relink` to the bridge |
 | `GET /gateways/<name>/repeaters/nearby` | The repeaters in that gateway's node's contacts, as the bridge route `GET gateway/repeaters/nearby` returns them. For an admin sharing a repeater through any host's gateway. Takes a short lease on the node (client `repeater-list`); recorded as a `repeaters_listed` event on the gateway. |
 | `DELETE /gateways/<name>` | Revoke and remove |
@@ -140,7 +140,7 @@ The relay will run its own internal client that takes short leases to poll repea
 3. A second bridge with the same token takes over, and the first gets 4009.
 4. A client with an `operator` token gets a lease and exchanges binary frames end to end with a fake node behind a test bridge. A second client gets 4029.
 5. Lease idle timeout and admin preemption both send `lease_ending` and close cleanly.
-6. A pubkey change marks the gateway `mismatch` and blocks leases until `accept-pubkey`.
+6. A pubkey change marks the gateway `mismatch` and blocks leases until `accept-pubkey`, unless the host announced it first (`POST gateway/node`).
 7. Kill the relay process: the data server's other endpoints are unaffected. After restart, the bridge is back online within its backoff window.
 8. No payload bytes appear in logs at the default log level.
 

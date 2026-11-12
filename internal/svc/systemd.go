@@ -136,6 +136,14 @@ func (s *Systemd) Install(exe, configPath string) error {
 	return nil
 }
 
+// Restart restarts the service; ErrNotInstalled if there's no unit.
+func (s *Systemd) Restart() error {
+	if _, err := os.Stat(s.path(UnitPath)); errors.Is(err, os.ErrNotExist) {
+		return ErrNotInstalled
+	}
+	return s.run("systemctl", "restart", UnitName)
+}
+
 // Uninstall stops and removes the service. The config (and the bridge's
 // token) is left in place.
 func (s *Systemd) Uninstall() error {

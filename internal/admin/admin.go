@@ -138,16 +138,19 @@ func (c *Client) Pairings(ctx context.Context) ([]Pairing, error) {
 
 // Gateway is one gateway's status.
 type Gateway struct {
-	Name         string                   `json:"name"`
-	Notes        string                   `json:"notes"`
-	Online       bool                     `json:"online"`
-	LastSeen     *time.Time               `json:"last_seen"`
-	Agent        *meshproto.Agent         `json:"agent"`
-	Link         *meshproto.Link          `json:"link"`
-	Node         *meshproto.Node          `json:"node"`
-	PubkeyStatus string                   `json:"pubkey_status"`
-	PinnedPubkey string                   `json:"pinned_pubkey"`
-	Lease        *struct{ Client string } `json:"lease"`
+	Name         string           `json:"name"`
+	Notes        string           `json:"notes"`
+	Online       bool             `json:"online"`
+	LastSeen     *time.Time       `json:"last_seen"`
+	Agent        *meshproto.Agent `json:"agent"`
+	Link         *meshproto.Link  `json:"link"`
+	Node         *meshproto.Node  `json:"node"`
+	PubkeyStatus string           `json:"pubkey_status"`
+	PinnedPubkey string           `json:"pinned_pubkey"`
+	// MismatchPubkey is the node the bridge reports when it isn't the
+	// pinned one (PubkeyStatus "mismatch").
+	MismatchPubkey string                   `json:"mismatch_pubkey"`
+	Lease          *struct{ Client string } `json:"lease"`
 }
 
 // Approve approves a code onto gateway ("" lets the relay name it after the

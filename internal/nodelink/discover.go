@@ -18,9 +18,12 @@ import (
 )
 
 // A WiFi companion node gets its address by DHCP, so the address in the
-// config can go stale. Discover finds the node again: the configured
-// address, then the last address it answered on, then a scan of the local
+// config can go stale. Discover finds the node again: the last address it
+// answered on, then the configured address, then a scan of the local
 // subnets for the companion port, keeping only the node whose pubkey matches.
+// A known address can come to belong to another node (two nodes on one
+// network swap addresses): the bridge then calls WrongNode, and the next
+// Open scans.
 
 // ErrNodeNotFound means no reachable node matched.
 var ErrNodeNotFound = errors.New("nodelink: no node found on this network")
@@ -53,7 +56,23 @@ type Discover struct {
 
 	mu       sync.Mutex
 	lastScan time.Time
-	misses   int // scans in a row that didn't find the node
+	misses   int  // scans in a row that didn't find the node
+	rescan   bool // WrongNode: scan next, skipping the known addresses
+}
+
+// WrongNode says the link Open returned reached a node with the wrong
+// pubkey. With two nodes on a network, DHCP can hand one the other's old
+// address, and dialing that address would keep reaching the wrong node.
+// The address is forgotten and the next Open scans for the expected node,
+// whenever the last scan was.
+func (d *Discover) WrongNode() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.defaults()
+	d.rescan = true
+	if d.State != nil && d.State.Get().NodeAddr != "" {
+		d.remember("")
+	}
 }
 
 func (d *Discover) defaults() {
@@ -95,7 +114,15 @@ func (d *Discover) Open(ctx context.Context) (Link, error) {
 
 	var lastErr error
 	tried := map[string]bool{}
-	for _, addr := range []string{d.configured(), d.State.Get().NodeAddr} {
+	// The address the node last answered on first: after a rescan found it
+	// somewhere new, the configured one may now be another node's.
+	known := []string{d.State.Get().NodeAddr, d.configured()}
+	rescan := d.rescan
+	if rescan {
+		// The known addresses just reached the wrong node: scan instead.
+		known, d.rescan = nil, false
+	}
+	for _, addr := range known {
 		if addr == "" || tried[addr] {
 			continue
 		}
@@ -109,7 +136,7 @@ func (d *Discover) Open(ctx context.Context) (Link, error) {
 		lastErr = err
 	}
 
-	if since := time.Since(d.lastScan); !d.lastScan.IsZero() && since < d.ScanEvery {
+	if since := time.Since(d.lastScan); !rescan && !d.lastScan.IsZero() && since < d.ScanEvery {
 		if lastErr == nil {
 			lastErr = ErrNodeNotFound
 		}

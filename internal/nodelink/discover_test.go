@@ -141,3 +141,57 @@ func TestDiscoverRejectsWrongNode(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// Two nodes on one network, and DHCP gave the other node our node's old
+// address: told it reached the wrong node, Discover forgets that address and
+// scans for ours, even though it scanned a moment ago.
+func TestDiscoverRescansAfterWrongNode(t *testing.T) {
+	other := node(t, "127.0.0.1", 0, "Neighbour")
+	port := other.Addr().Port
+	ours := node(t, "127.0.0.3", port, "Ours")
+	scan, calls := hosts("127.0.0.1", "127.0.0.3")
+	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	if err := st.Update(func(s *state.State) { s.NodeAddr = other.Addr().String() }); err != nil {
+		t.Fatal(err)
+	}
+	// Setup saved the address our node had then, which is now the other's.
+	d := &nodelink.Discover{Host: "127.0.0.1", Port: port, ExpectedPubkey: ours.PubkeyHex(), State: st, Hosts: scan,
+		ScanEvery: time.Hour}
+
+	// The remembered address answers, so Open uses it: the caller checks
+	// the pubkey and finds the wrong node.
+	link, err := d.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link.Close()
+	if link.Detail() != other.Addr().String() {
+		t.Fatalf("first open reached %s", link.Detail())
+	}
+	d.WrongNode()
+	if got := st.Get().NodeAddr; got != "" {
+		t.Fatalf("still remembers %q", got)
+	}
+	link, err = d.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link.Close()
+	if link.Detail() != ours.Addr().String() || calls.Load() != 1 {
+		t.Fatalf("reached %s after %d scans", link.Detail(), calls.Load())
+	}
+	if got := st.Get().NodeAddr; got != ours.Addr().String() {
+		t.Fatalf("remembers %q", got)
+	}
+
+	// Once is enough: the next Open dials the address ours answered on,
+	// before the configured one.
+	link, err = d.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link.Close()
+	if link.Detail() != ours.Addr().String() || calls.Load() != 1 {
+		t.Fatalf("reached %s after %d scans", link.Detail(), calls.Load())
+	}
+}

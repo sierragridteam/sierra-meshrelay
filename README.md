@@ -223,7 +223,10 @@ meshbridge status                    # green / amber / red, node, last traffic, 
 meshbridge pause 1h                  # or: tomorrow (08:00), until-resumed
 meshbridge resume
 meshbridge reconnect                 # look for the node now (after restarting it), not at the next retry
+meshbridge change-node               # switch to a different node (a replacement or a reflashed one)
 ```
+
+`change-node` finds the new node, tells SIERRA (which re-pins the gateway to it and records the change in its logs), saves it in the config and restarts the service. The gateway keeps its name, token and shared repeaters.
 
 While the node is unavailable, `status` says since when, why, and where it was last connected. The bridge retries on its own about every 30 seconds (plus the time a network scan takes); `reconnect` skips the wait. If a SIERRA client is using the node, `reconnect` needs `-force`, because it ends that session.
 
@@ -265,6 +268,7 @@ How `connect` behaves:
 meshbridge admin gateways                   # bridges, nodes, versions, last seen
 meshbridge admin logs <gateway> -f          # a bridge's log lines (never message content)
 meshbridge admin reconnect <gateway>        # have a bridge look for its node now; -yes if a client is using it
+meshbridge admin accept-node <gateway>      # accept the node a bridge reports when it isn't the one on record
 meshbridge admin remove <gateway>           # revoke and disconnect a gateway
 meshbridge admin update-bridges v0.8.1 -gateway mission-gateway   # offer a release to one gateway (canary)
 meshbridge admin update-bridges v0.8.1      # then to all; "off" stops offering

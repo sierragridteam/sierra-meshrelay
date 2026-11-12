@@ -387,6 +387,14 @@ On a machine with meshbridge installed, opening this link opens setup with the p
 
 Authenticated with the bridge token: `Authorization: Bearer smb_…`.
 
+### Changing the node: `gateway/node`
+
+| Method & path | Does |
+|---|---|
+| `POST gateway/node` `{pubkey}` | The host switched this gateway to another node (`meshbridge change-node`). The relay pins the gateway to `pubkey` at once and records a `node_changed` event (`old… → new… by the host`). Answers `{gateway, changed}`; `changed` is false if it was already pinned to that node. 400 for a malformed pubkey. |
+
+The relay can't verify a node's identity (the bridge reports it), so the pin guards against a different node answering by accident, not against the host. A change the host makes explicitly takes effect at once. A different node that answers without one still blocks leases until the host runs `change-node` or an admin accepts it (`POST /gateways/<name>/accept-pubkey`, `meshbridge admin accept-node`).
+
 ### Shared repeaters: `gateway/repeaters`
 
 A host shares a MeshCore repeater with SIERRA by giving its password (preferably the guest one). The relay then logs in to it over the mesh, through this gateway or any other in range, to read its status. Before sharing, the bridge must tell the host that any SIERRA gateway in range may be used to log in to the repeater.

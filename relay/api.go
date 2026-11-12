@@ -85,6 +85,8 @@ func (r *Relay) ServerOptions() []prefab.ServerOption {
 		// bridge token; admins see and manage all of them.
 		prefab.WithJSONHandler("GET "+api+"/gateway/repeaters", j(r.bridgeAuthed(r.apiGatewayListRepeaters))),
 		prefab.WithJSONHandler("GET "+api+"/gateway/repeaters/nearby", j(r.bridgeAuthed(r.apiGatewayNearbyRepeaters))),
+		// A host switching their gateway to another node (meshbridge change-node).
+		prefab.WithJSONHandler("POST "+api+"/gateway/node", j(r.bridgeAuthed(r.apiGatewaySetNode))),
 		prefab.WithJSONHandler("POST "+api+"/gateway/repeaters", j(r.bridgeAuthed(r.apiGatewayAddRepeater))),
 		// The same, answered as a stream of steps (see streamJSON).
 		prefab.WithHTTPHandlerFunc("POST "+api+"/gateway/repeaters/stream", h(r.streamJSON(r.bridgeAuthed(r.apiGatewayAddRepeater)))),
@@ -452,6 +454,57 @@ func (r *Relay) apiAcceptPubkey(req *http.Request, who *ClientRecord) (any, erro
 	logging.Infow(r.ctx, "pubkey change accepted", "gateway", name, "pubkey", accepted, "by", who.Name)
 	rec.PinnedPubkey, rec.MismatchPubkey = accepted, ""
 	return map[string]any{"gateway": r.status(rec)}, nil
+}
+
+type setNodeBody struct {
+	Pubkey string `json:"pubkey"`
+}
+
+// apiGatewaySetNode is a host saying their gateway now uses a different
+// node (meshbridge change-node), with the bridge's token. It re-pins the
+// gateway to that node at once. The relay can't verify a node's identity (the
+// bridge reports it), so the pin guards against a wrong node answering by
+// accident, not against the host; an explicit change is theirs to make, and
+// it's recorded for admins.
+func (r *Relay) apiGatewaySetNode(req *http.Request, gw *GatewayRecord) (any, error) {
+	var body setNodeBody
+	if err := decodeBody(req, &body); err != nil {
+		return nil, err
+	}
+	pk, ok := NormalizePubkey(body.Pubkey)
+	if !ok {
+		return nil, errors.NewC("pubkey must be 64 hex characters", codes.InvalidArgument)
+	}
+	r.pubkeyMu.Lock()
+	defer r.pubkeyMu.Unlock()
+	rec, err := r.store.Gateway(gw.Name)
+	if err != nil {
+		return nil, storeErr(err, "unknown gateway")
+	}
+	old := rec.PinnedPubkey
+	if old == pk && rec.MismatchPubkey == "" {
+		return map[string]any{"gateway": r.status(rec), "changed": false}, nil
+	}
+	if err := r.store.SetPubkeys(gw.Name, pk, ""); err != nil {
+		return nil, errors.Wrap(err, 0)
+	}
+	r.mu.Lock()
+	if g := r.gws[gw.Name]; g != nil {
+		g.pinned, g.mismatch = pk, ""
+	}
+	r.mu.Unlock()
+	r.event(gw.Name, "node_changed", shortKey(old)+" → "+shortKey(pk)+" by the host")
+	logging.Infow(r.ctx, "gateway node changed by its host", "gateway", gw.Name, "from", old, "to", pk)
+	rec.PinnedPubkey, rec.MismatchPubkey = pk, ""
+	return map[string]any{"gateway": r.status(rec), "changed": true}, nil
+}
+
+// shortKey abbreviates a pubkey for an event ("none" if unset).
+func shortKey(pk string) string {
+	if len(pk) < 12 {
+		return "none"
+	}
+	return pk[:12] + "…"
 }
 
 func (r *Relay) apiRelink(req *http.Request, who *ClientRecord) (any, error) {

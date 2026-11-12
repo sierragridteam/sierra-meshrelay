@@ -3,6 +3,7 @@
 package svc
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,5 +80,26 @@ func TestInstallAndUninstall(t *testing.T) {
 	}
 	if err := s.Uninstall(); err == nil {
 		t.Fatal("uninstalling twice should say it isn't installed")
+	}
+}
+
+func TestRestart(t *testing.T) {
+	root := t.TempDir()
+	var ran []string
+	s := &Systemd{Root: root, Run: func(name string, args ...string) error {
+		ran = append(ran, name+" "+strings.Join(args, " "))
+		return nil
+	}}
+	if err := s.Restart(); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("no unit: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, UnitPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, UnitPath), []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restart(); err != nil || strings.Join(ran, "|") != "systemctl restart meshbridge.service" {
+		t.Fatalf("restart: %v %v", err, ran)
 	}
 }

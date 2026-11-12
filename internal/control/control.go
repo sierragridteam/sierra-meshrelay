@@ -199,7 +199,7 @@ func Describe(st bridge.Status, gateway, version string) StatusDoc {
 	}
 	switch {
 	case st.Node.State == meshproto.NodeMismatch:
-		d.Level, d.Reason = Red, "This isn't the node SIERRA expects. Contact your SIERRA contact."
+		d.Level, d.Reason = Red, "This isn't the node this bridge is set up for. If you replaced it, run: meshbridge change-node"
 	case st.Paused && st.PauseUntil.IsZero():
 		d.Level, d.Reason = Amber, "Sharing is paused until you resume it."
 	case st.Paused:

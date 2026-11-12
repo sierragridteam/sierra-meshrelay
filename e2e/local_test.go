@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/dpup/prefab"
 	"github.com/dpup/prefab/logging"
 
+	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
 	"github.com/sierragridteam/sierra-meshrelay/internal/bridge"
 	"github.com/sierragridteam/sierra-meshrelay/internal/companion"
 	"github.com/sierragridteam/sierra-meshrelay/internal/config"
@@ -297,14 +299,71 @@ func TestLocalPubkeyPinning(t *testing.T) {
 		t.Errorf("Explain = %q", got)
 	}
 
-	if code := lr.api("POST", "/gateways/cabin/accept-pubkey", nil, nil); code != 200 {
-		t.Fatalf("accept-pubkey: HTTP %d", code)
+	if err := adminClient(lr).AcceptPubkey(context.Background(), "cabin"); err != nil {
+		t.Fatalf("accept-pubkey: %v", err)
 	}
 	c, err := relayclient.Dial(ctx, lr.wsBase(), "cabin", op, false)
 	if err != nil {
 		t.Fatalf("lease after accept: %v", err)
 	}
 	c.Close()
+}
+
+// TestLocalChangeNode: the host switches their gateway to another node
+// (meshbridge change-node) with the bridge's own token: the relay re-pins at
+// once, records it for admins, and the new node is usable straight away.
+func TestLocalChangeNode(t *testing.T) {
+	lr := startRelay(t)
+	tok := lr.createGateway("cabin")
+	op := lr.createClient("tester", "operator")
+	first := startNode(t, "Original")
+	_, stop := startBridge(t, lr, "cabin", tok, first)
+	lr.waitGateway("cabin", "first node pinned", connected)
+
+	// As change-node does it: the relay first, while the bridge still runs
+	// on the old node; then the bridge restarts with the new one.
+	replacement := startNode(t, "Replacement")
+	host := &admin.Client{APIBase: config.HTTPBase(lr.wsBase()), Token: tok}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if changed, err := host.SetNode(ctx, replacement.PubkeyHex()); err != nil || !changed {
+		t.Fatalf("set node: %v %v", changed, err)
+	}
+	if changed, err := host.SetNode(ctx, replacement.PubkeyHex()); err != nil || changed {
+		t.Fatalf("set the same node again: %v %v", changed, err)
+	}
+	if _, err := host.SetNode(ctx, "not-a-pubkey"); err == nil {
+		t.Fatal("accepted a bad pubkey")
+	}
+	if _, err := (&admin.Client{APIBase: host.APIBase, Token: "smb_wrong"}).SetNode(ctx, replacement.PubkeyHex()); !isStatus(err, 401) {
+		t.Fatalf("bad token: %v", err)
+	}
+
+	stop()
+	startBridge(t, lr, "cabin", tok, replacement)
+	d := lr.waitGateway("cabin", "replacement connected", connected)
+	if d.PinnedPubkey != replacement.PubkeyHex() {
+		t.Fatalf("pinned %s", d.PinnedPubkey)
+	}
+	c, err := relayclient.Dial(ctx, lr.wsBase(), "cabin", op, false)
+	if err != nil {
+		t.Fatalf("lease on the replacement: %v", err)
+	}
+	c.Close()
+
+	_, events, err := adminClient(lr).Logs(ctx, "cabin", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := first.PubkeyHex()[:12] + "… → " + replacement.PubkeyHex()[:12] + "… by the host"
+	if !slices.ContainsFunc(events, func(e admin.GatewayEvent) bool { return e.Kind == "node_changed" && e.Detail == want }) {
+		t.Fatalf("no node_changed %q event: %+v", want, events)
+	}
+}
+
+func isStatus(err error, status int) bool {
+	var ae *admin.APIError
+	return errors.As(err, &ae) && ae.Status == status
 }
 
 // TestLocalRelinkAndBusy: an admin relink reaches the node through the bridge;
