@@ -167,7 +167,7 @@ func (s *Store) RecentLeases(limit int) ([]relay.LeaseRecord, error) {
 		FilterExpression:          aws.String("attribute_exists(endedAt)"),
 		ExpressionAttributeValues: item{":pk": str(pkLease)},
 		ScanIndexForward:          aws.Bool(false),
-		Limit:                     aws.Int32(int32(min(limit+16, 1000))),
+		Limit:                     aws.Int32(queryLimit(limit + 16)),
 	}, func(it item) bool {
 		out = append(out, leaseFrom(it))
 		return len(out) < limit
@@ -539,7 +539,7 @@ func (s *Store) BridgeLogs(gateway string, afterID int64, limit int) ([]relay.Br
 		KeyConditionExpression:    aws.String("pk = :pk AND sk > :after"),
 		ExpressionAttributeValues: item{":pk": str(logsPK(gateway)), ":after": str(pad(max(afterID, 0)))},
 		ScanIndexForward:          aws.Bool(false),
-		Limit:                     aws.Int32(int32(min(limit, 1000))),
+		Limit:                     aws.Int32(queryLimit(limit)),
 	}, func(it item) bool {
 		e := relay.BridgeLog{ID: getN(it, "id"), ReceivedAt: fromMS(getN(it, "receivedAt")), T: getS(it, "t"),
 			Level: getS(it, "level"), Msg: getS(it, "msg")}
@@ -551,4 +551,16 @@ func (s *Store) BridgeLogs(gateway string, afterID int64, limit int) ([]relay.Br
 	})
 	slices.Reverse(out)
 	return out, err
+}
+
+// queryLimit clamps a page size to DynamoDB's Limit, which is an int32. The
+// explicit bounds (not min) are what CodeQL's integer-conversion check wants.
+func queryLimit(n int) int32 {
+	if n > 1000 {
+		return 1000
+	}
+	if n < 1 {
+		return 1
+	}
+	return int32(n)
 }

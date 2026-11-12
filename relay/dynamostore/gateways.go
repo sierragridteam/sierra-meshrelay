@@ -331,7 +331,7 @@ func (s *Store) GatewayEvents(name string, limit int) ([]relay.GatewayEvent, err
 		KeyConditionExpression:    aws.String("pk = :pk"),
 		ExpressionAttributeValues: item{":pk": str(eventsPK(name))},
 		ScanIndexForward:          aws.Bool(false),
-		Limit:                     aws.Int32(int32(min(limit, 1000))),
+		Limit:                     aws.Int32(queryLimit(limit)),
 	}, func(it item) bool {
 		out = append(out, relay.GatewayEvent{At: fromMS(getN(it, "at")), Kind: getS(it, "kind"), Detail: getS(it, "detail")})
 		return len(out) < limit
