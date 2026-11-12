@@ -71,6 +71,8 @@ systemctl status meshbridge
 
 `status` needs `sudo`, because it reads the control secret in `/etc/meshbridge/control.token`.
 
+After restarting the node, `sudo meshbridge reconnect` looks for it now instead of at the bridge's next retry. While the node is unavailable, `status` says since when, why, and where it was last connected.
+
 The bridge sends its recent log lines (never message content, and with secrets redacted) to the relay, where SIERRA admins can read them to help if something goes wrong. To turn that off, set `send_logs = false` under `[host]` in the config and restart the service.
 
 ## Pausing

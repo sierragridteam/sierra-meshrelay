@@ -234,6 +234,12 @@ func (c *Client) Gateways(ctx context.Context) ([]Gateway, error) {
 	return out.Gateways, c.do(ctx, http.MethodGet, "/gateways", nil, &out)
 }
 
+// Relink asks a gateway's bridge to reopen its node link now, skipping its
+// retry wait. It ends any session using the node.
+func (c *Client) Relink(ctx context.Context, gateway string) error {
+	return c.do(ctx, http.MethodPost, "/gateways/"+url.PathEscape(gateway)+"/relink", nil, nil)
+}
+
 // InstallOneLiner is the Linux install command for a passphrase.
 func InstallOneLiner(passphrase string) string {
 	return `curl -fsSL https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.sh | sh -s -- --passphrase "` +

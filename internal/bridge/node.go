@@ -180,6 +180,9 @@ func (b *Bridge) nodeDown(reason string, err error) {
 	now := time.Now()
 	if b.downSince.IsZero() {
 		b.downSince, b.downLogged, b.downTries = now, now, 0
+		b.mu.Lock()
+		b.nodeDownAt = now
+		b.mu.Unlock()
 		b.log.Warn("node unavailable", "reason", reason, "error", err)
 	} else if now.Sub(b.downLogged) >= nodeDownSummaryEvery {
 		b.downLogged = now
@@ -198,6 +201,9 @@ func (b *Bridge) nodeUp() time.Duration {
 	}
 	d := time.Since(b.downSince).Round(time.Second)
 	b.downSince, b.downTries = time.Time{}, 0
+	b.mu.Lock()
+	b.nodeDownAt = time.Time{}
+	b.mu.Unlock()
 	return d
 }
 
