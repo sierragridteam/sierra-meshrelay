@@ -92,6 +92,15 @@ func (c *Client) NearbyRepeaters(ctx context.Context) ([]NearbyRepeater, error) 
 	return out.Repeaters, c.do(ctx, http.MethodGet, "/gateway/repeaters/nearby", nil, &out)
 }
 
+// GatewayNearbyRepeaters lists the repeaters a gateway's node knows (admin
+// token): for adding one through someone else's gateway.
+func (c *Client) GatewayNearbyRepeaters(ctx context.Context, gateway string) ([]NearbyRepeater, error) {
+	var out struct {
+		Repeaters []NearbyRepeater `json:"repeaters"`
+	}
+	return out.Repeaters, c.do(ctx, http.MethodGet, "/gateways/"+url.PathEscape(gateway)+"/repeaters/nearby", nil, &out)
+}
+
 // MyRepeaters lists the repeaters this bridge shared (bridge token).
 func (c *Client) MyRepeaters(ctx context.Context) ([]Repeater, error) {
 	var out struct {

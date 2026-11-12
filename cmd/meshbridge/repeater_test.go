@@ -20,7 +20,7 @@ func nearby(names ...string) []admin.NearbyRepeater {
 func TestPickNearby(t *testing.T) {
 	near := nearby("zeta RPT", "Ridge RPT", "alpha", "Ridgecrest", "Mission Hill")
 	pick := func(want, input string, interactive bool) (string, error) {
-		r, err := pickNearby(near, want, bufio.NewReader(strings.NewReader(input)), interactive)
+		r, err := pickNearby(near, want, bufio.NewReader(strings.NewReader(input)), interactive, "your node", "meshbridge repeater add")
 		return r.Name, err
 	}
 	cases := []struct {
