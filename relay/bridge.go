@@ -184,7 +184,7 @@ func (r *Relay) bridgeControl(s *bridgeSession, data []byte) {
 			g.stats, g.statsAt, g.lastSeen = &st, now, now
 		}
 		r.mu.Unlock()
-		r.audit("stats", func(st *Store) error { return st.recordStats(s.gateway, m.Stats, now) })
+		r.audit("stats", func(st Storage) error { return st.RecordStats(s.gateway, m.Stats, now) })
 	case "log":
 		r.bridgeLog(s, data)
 	case "error":
@@ -296,7 +296,7 @@ func (r *Relay) attachBridge(s *bridgeSession, h *helloMsg, pinned, mismatch str
 	}
 	r.event(s.gateway, "connect", s.id)
 	hc := *h
-	r.audit("hello", func(st *Store) error { return st.recordHello(s.gateway, &hc, now) })
+	r.audit("hello", func(st Storage) error { return st.RecordHello(s.gateway, &hc, now) })
 	return true
 }
 
@@ -369,7 +369,7 @@ func (r *Relay) detachBridge(s *bridgeSession) bool {
 	}
 	r.mu.Unlock()
 	if current {
-		r.audit("last seen", func(st *Store) error { return st.recordSeen(s.gateway, now) })
+		r.audit("last seen", func(st Storage) error { return st.RecordSeen(s.gateway, now) })
 	}
 	return current
 }

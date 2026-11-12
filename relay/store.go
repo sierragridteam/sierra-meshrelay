@@ -295,18 +295,18 @@ func (s *Store) DeleteGateway(name string) error {
 	return s.deleteBridgeLogs(name)
 }
 
-func (s *Store) recordHello(name string, h *helloMsg, at time.Time) error {
+func (s *Store) RecordHello(name string, h *helloMsg, at time.Time) error {
 	b, _ := json.Marshal(h)
 	_, err := s.db.Exec(`UPDATE gateways SET last_hello = ?, last_seen = ? WHERE name = ?`, string(b), ms(at), name)
 	return err
 }
 
-func (s *Store) recordSeen(name string, at time.Time) error {
+func (s *Store) RecordSeen(name string, at time.Time) error {
 	_, err := s.db.Exec(`UPDATE gateways SET last_seen = ? WHERE name = ?`, ms(at), name)
 	return err
 }
 
-func (s *Store) recordStats(name string, st Stats, at time.Time) error {
+func (s *Store) RecordStats(name string, st Stats, at time.Time) error {
 	b, _ := json.Marshal(st)
 	_, err := s.db.Exec(`UPDATE gateways SET last_stats = ?, last_stats_at = ?, last_seen = ? WHERE name = ?`,
 		string(b), ms(at), ms(at), name)
@@ -324,7 +324,7 @@ type GatewayEvent struct {
 // one token) writes two rows per flap; this keeps that from growing forever.
 const maxEventsPerGateway = 500
 
-func (s *Store) addEvent(name string, e GatewayEvent) error {
+func (s *Store) AddGatewayEvent(name string, e GatewayEvent) error {
 	if _, err := s.db.Exec(`INSERT INTO gateway_events (gateway, at, kind, detail) VALUES (?, ?, ?, ?)`,
 		name, ms(e.At), e.Kind, e.Detail); err != nil {
 		return err
@@ -434,13 +434,13 @@ type LeaseRecord struct {
 	BytesFromNode  int64      `json:"bytes_from_node"`
 }
 
-func (s *Store) insertLease(l LeaseRecord) error {
+func (s *Store) InsertLease(l LeaseRecord) error {
 	_, err := s.db.Exec(`INSERT INTO leases (id, gateway, client, role, started_at) VALUES (?, ?, ?, ?, ?)`,
 		l.ID, l.Gateway, l.Client, string(l.Role), ms(l.StartedAt))
 	return err
 }
 
-func (s *Store) endLease(l LeaseRecord) error {
+func (s *Store) EndLease(l LeaseRecord) error {
 	_, err := s.db.Exec(`UPDATE leases SET ended_at = ?, end_reason = ?, frames_to_node = ?, frames_from_node = ?,
 		bytes_to_node = ?, bytes_from_node = ? WHERE id = ?`,
 		ms(*l.EndedAt), l.EndReason, l.FramesToNode, l.FramesFromNode, l.BytesToNode, l.BytesFromNode, l.ID)

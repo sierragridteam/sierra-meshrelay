@@ -50,7 +50,7 @@ type BridgeLog struct {
 	Attrs      map[string]string `json:"attrs,omitempty"`
 }
 
-func (s *Store) addBridgeLogs(gateway string, at time.Time, es []BridgeLog) error {
+func (s *Store) AddBridgeLogs(gateway string, at time.Time, es []BridgeLog) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func (r *Relay) flushLogs(gateway string) {
 	delete(r.logPending, gateway)
 	r.logMu.Unlock()
 	if p != nil && len(p.lines) > 0 {
-		r.audit("bridge log", func(st *Store) error { return st.addBridgeLogs(gateway, p.at, p.lines) })
+		r.audit("bridge log", func(st Storage) error { return st.AddBridgeLogs(gateway, p.at, p.lines) })
 	}
 }
 

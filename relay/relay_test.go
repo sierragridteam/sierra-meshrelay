@@ -826,7 +826,7 @@ func TestOrphanLeasesClosedAtStartup(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "relay.db")
 	st, err := OpenStore(context.Background(), db, time.Second)
 	require.NoError(t, err)
-	require.NoError(t, st.insertLease(LeaseRecord{ID: "l_x", Gateway: "gw", Client: "c", Role: RoleAgent, StartedAt: time.Now()}))
+	require.NoError(t, st.InsertLease(LeaseRecord{ID: "l_x", Gateway: "gw", Client: "c", Role: RoleAgent, StartedAt: time.Now()}))
 	require.NoError(t, st.Close())
 
 	h := newHarnessAt(t, Config{}, db)

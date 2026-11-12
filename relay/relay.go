@@ -111,7 +111,7 @@ func (c Config) withDefaults() Config {
 // lease held.
 type Relay struct {
 	cfg   Config
-	store *Store
+	store Storage
 	ctx   context.Context // carries the prefab logger
 	now   func() time.Time
 
@@ -122,7 +122,7 @@ type Relay struct {
 	// accept-pubkey), which read and write the store outside mu.
 	pubkeyMu sync.Mutex
 
-	auditCh     chan func(*Store) error
+	auditCh     chan func(Storage) error
 	auditWG     sync.WaitGroup
 	auditMu     sync.RWMutex // guards auditClosed against a send on the closed channel
 	auditClosed bool
@@ -283,8 +283,9 @@ type metrics struct {
 	clientConns    atomic.Int64 // currently open client sockets
 }
 
-// New builds a relay over an open store. ctx carries the logger.
-func New(ctx context.Context, cfg Config, st *Store) *Relay {
+// New builds a relay over an open store (the SQLite *Store from OpenStore, or
+// another Storage such as relay/dynamostore). ctx carries the logger.
+func New(ctx context.Context, cfg Config, st Storage) *Relay {
 	cfg = cfg.withDefaults()
 	r := &Relay{
 		cfg:     cfg,
@@ -293,7 +294,7 @@ func New(ctx context.Context, cfg Config, st *Store) *Relay {
 		stopped: make(chan struct{}),
 		now:     time.Now,
 		gws:     map[string]*gwState{},
-		auditCh: make(chan func(*Store) error, 1024),
+		auditCh: make(chan func(Storage) error, 1024),
 		lockout: newIPLockout(cfg.AuthFailLimit, cfg.AuthFailWindow, cfg.AuthLockout),
 		pairs:   newPairingState(cfg.Pairing),
 		debug:   map[string]bool{},
@@ -364,8 +365,8 @@ func (r *Relay) Run(ctx context.Context) {
 
 // audit queues a store write off the hot path. Writes run in order on one
 // goroutine; a full queue drops the write (logged) rather than stall a frame.
-func (r *Relay) audit(what string, fn func(*Store) error) {
-	wrapped := func(s *Store) error {
+func (r *Relay) audit(what string, fn func(Storage) error) {
+	wrapped := func(s Storage) error {
 		if err := fn(s); err != nil {
 			logging.Errorw(r.ctx, "relay audit write failed", "what", what, "error", err)
 		}
@@ -402,7 +403,7 @@ func (r *Relay) auditLoop() {
 
 func (r *Relay) event(gw, kind, detail string) {
 	e := GatewayEvent{At: r.now(), Kind: kind, Detail: detail}
-	r.audit("gateway event", func(s *Store) error { return s.addEvent(gw, e) })
+	r.audit("gateway event", func(s Storage) error { return s.AddGatewayEvent(gw, e) })
 }
 
 func (r *Relay) shutdown() {
@@ -546,7 +547,7 @@ func (r *Relay) Acquire(req LeaseRequest) (*Lease, error) {
 	r.m.leases.Add(1)
 	g.bridge.conn.sendJSON(attachMsg{Type: "attach", Lease: l.ID, Client: l.Client})
 	rec := LeaseRecord{ID: l.ID, Gateway: l.Gateway, Client: l.Client, Role: l.Role, StartedAt: now}
-	r.audit("lease start", func(s *Store) error { return s.insertLease(rec) })
+	r.audit("lease start", func(s Storage) error { return s.InsertLease(rec) })
 	logging.Infow(r.ctx, "lease granted", "gateway", l.Gateway, "lease", l.ID, "client", l.Client, "role", l.Role,
 		"preempt", req.Preempt)
 	l.holder.Notify(r.leaseMsgLocked(g, l))
@@ -609,11 +610,11 @@ func (r *Relay) endLeaseLocked(l *Lease, reason string, notify bool) {
 		l.holder.End(reason)
 	}
 	rec := LeaseRecord{
-		ID: l.ID, EndedAt: &now, EndReason: reason,
+		ID: l.ID, Gateway: l.Gateway, Client: l.Client, Role: l.Role, StartedAt: l.started, EndedAt: &now, EndReason: reason,
 		FramesToNode: l.framesTo.Load(), FramesFromNode: l.framesFrom.Load(),
 		BytesToNode: l.bytesTo.Load(), BytesFromNode: l.bytesFrom.Load(),
 	}
-	r.audit("lease end", func(s *Store) error { return s.endLease(rec) })
+	r.audit("lease end", func(s Storage) error { return s.EndLease(rec) })
 	logging.Infow(r.ctx, "lease ended", "gateway", l.Gateway, "lease", l.ID, "client", l.Client, "reason", reason,
 		"duration_s", int(now.Sub(l.started).Seconds()),
 		"frames_to_node", rec.FramesToNode, "frames_from_node", rec.FramesFromNode)

@@ -163,7 +163,11 @@ func (s *Store) RepeaterAttempts(pubkey string, since time.Time) ([]RepeaterAtte
 // RepeaterLinks summarizes a repeater's attempts since a time, by gateway
 // (most tries first).
 func (s *Store) RepeaterLinks(pubkey string, since time.Time) ([]RepeaterLink, error) {
-	as, err := s.RepeaterAttempts(pubkey, since)
+	return repeaterLinks(s, pubkey, since)
+}
+
+func repeaterLinks(st Storage, pubkey string, since time.Time) ([]RepeaterLink, error) {
+	as, err := st.RepeaterAttempts(pubkey, since)
 	if err != nil {
 		return nil, err
 	}
@@ -247,9 +251,9 @@ func (s *Store) deleteRepeaterPolling(pubkey string) error {
 // through the relay's write queue, like poll outcomes).
 func (r *Relay) SetRepeaterPollState(pubkey string, st RepeaterPollState) {
 	now := r.now()
-	r.audit("repeater poll state", func(s *Store) error { return s.SetRepeaterPollState(pubkey, st, now) })
+	r.audit("repeater poll state", func(s Storage) error { return s.SetRepeaterPollState(pubkey, st, now) })
 }
 
 func (r *Relay) recordAttempt(a RepeaterAttempt) {
-	r.audit("repeater attempt", func(s *Store) error { return s.RecordRepeaterAttempt(a) })
+	r.audit("repeater attempt", func(s Storage) error { return s.RecordRepeaterAttempt(a) })
 }

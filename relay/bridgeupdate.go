@@ -8,7 +8,9 @@ package relay
 // repo), so the relay only chooses the version.
 
 import (
+	"database/sql"
 	"encoding/json"
+	stderrors "errors"
 	"net/http"
 	"regexp"
 	"slices"
@@ -44,29 +46,39 @@ func (u BridgeUpdate) appliesTo(gateway string) bool {
 	return u.Version != "" && (len(u.Gateways) == 0 || slices.Contains(u.Gateways, gateway))
 }
 
-func (s *Store) setting(key string, v any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?)
-		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, string(b))
+// SetSetting stores a setting's JSON value.
+func (s *Store) SetSetting(key string, value []byte) error {
+	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, string(value))
 	return err
 }
 
-func (s *Store) getSetting(key string, v any) error {
+// Setting returns a setting's JSON value, or ErrNotFound.
+func (s *Store) Setting(key string) ([]byte, error) {
 	var raw string
 	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&raw)
-	if err != nil {
-		return err
+	if stderrors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
 	}
-	return json.Unmarshal([]byte(raw), v)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(raw), nil
 }
 
+// settingBridgeUpdate is the settings key of the bridge release target.
+const settingBridgeUpdate = "bridge_update"
+
 // BridgeUpdate returns the configured bridge release ("" if none).
-func (s *Store) BridgeUpdate() BridgeUpdate {
+func (s *Store) BridgeUpdate() BridgeUpdate { return bridgeUpdateOf(s) }
+
+// bridgeUpdateOf reads the configured bridge release from any store; a
+// missing or unreadable setting offers nothing.
+func bridgeUpdateOf(st Storage) BridgeUpdate {
 	var u BridgeUpdate
-	_ = s.getSetting("bridge_update", &u)
+	if raw, err := st.Setting(settingBridgeUpdate); err == nil {
+		_ = json.Unmarshal(raw, &u)
+	}
 	return u
 }
 
@@ -87,14 +99,14 @@ func (r *Relay) updateOffer(u BridgeUpdate, gateway, running string) *meshproto.
 
 // offerUpdate sends the configured update to a bridge that just connected.
 func (r *Relay) offerUpdate(s *bridgeSession, running string) {
-	if m := r.updateOffer(r.store.BridgeUpdate(), s.gateway, running); m != nil {
+	if m := r.updateOffer(bridgeUpdateOf(r.store), s.gateway, running); m != nil {
 		s.conn.sendJSON(m)
 		logging.Infow(r.ctx, "offered bridge update", "gateway", s.gateway, "running", running, "version", m.Version)
 	}
 }
 
 func (r *Relay) apiGetBridgeUpdate(_ *http.Request, _ *ClientRecord) (any, error) {
-	return r.store.BridgeUpdate(), nil
+	return bridgeUpdateOf(r.store), nil
 }
 
 func (r *Relay) apiSetBridgeUpdate(req *http.Request, who *ClientRecord) (any, error) {
@@ -110,7 +122,11 @@ func (r *Relay) apiSetBridgeUpdate(req *http.Request, who *ClientRecord) (any, e
 			return nil, errors.NewC("bad gateway name "+g, codes.InvalidArgument)
 		}
 	}
-	if err := r.store.setting("bridge_update", body); err != nil {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, errors.Wrap(err, 0)
+	}
+	if err := r.store.SetSetting(settingBridgeUpdate, raw); err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
 	logging.Infow(r.ctx, "bridge update target set", "version", body.Version, "gateways", body.Gateways, "by", who.Name)
