@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,24 +63,46 @@ func TestShareRepeaters(t *testing.T) {
 	}
 
 	// A wrong password is refused and nothing is stored.
-	if _, err := host.ShareRepeater(ctx, ridge.Pubkey, "", "wrong"); err == nil || !strings.Contains(err.Error(), "refused") {
+	if _, err := host.ShareRepeater(ctx, ridge.Pubkey, "", "wrong", nil); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("wrong password: %v", err)
 	}
 	if rs, _ := ac.Repeaters(ctx); len(rs) != 0 {
 		t.Fatalf("stored after a failed check: %+v", rs)
 	}
 
-	res, err := host.ShareRepeater(ctx, ridge.Pubkey, "", "look")
+	var steps []string
+	res, err := host.ShareRepeater(ctx, ridge.Pubkey, "", "look", func(s string) { steps = append(steps, s) })
 	if err != nil || res.Check.Access != "guest" || res.Repeater.Name != "Ridge RPT" || res.Repeater.AddedByGateway != "cabin" ||
 		res.Check.Status == nil || *res.Check.Status.BatteryMilliVolts != 3950 {
 		t.Fatalf("share: %+v %v", res, err)
+	}
+	// The relay streamed each step, and recorded it for admin logs.
+	wantSteps := []string{"using cabin's node", "logging in to the repeater over the mesh",
+		"logged in as guest; reading the repeater's status", "checked; sharing it with SIERRA"}
+	for _, w := range wantSteps {
+		if !slices.Contains(steps, w) {
+			t.Errorf("steps lack %q: %q", w, steps)
+		}
+	}
+	if _, events, err := ac.Logs(ctx, "cabin", 0, 100); err != nil {
+		t.Fatal(err)
+	} else {
+		var got []string
+		for _, e := range events {
+			if e.Kind == "repeater_add" {
+				got = append(got, e.Detail)
+			}
+		}
+		if !slices.Contains(got, "logging in to the repeater over the mesh") || !slices.Contains(got, "failed: the repeater refused that password") {
+			t.Errorf("repeater_add events: %q", got)
+		}
 	}
 	if !cabinMesh.HasContact(ridge.Pubkey) {
 		t.Fatal("the host's own contact was removed")
 	}
 
 	// Another gateway can't take it over or remove it.
-	if _, err := other.ShareRepeater(ctx, ridge.Pubkey, "", "look"); err == nil || !strings.Contains(err.Error(), "someone else") {
+	if _, err := other.ShareRepeater(ctx, ridge.Pubkey, "", "look", nil); err == nil || !strings.Contains(err.Error(), "someone else") {
 		t.Fatalf("takeover: %v", err)
 	}
 	if err := other.UnshareRepeater(ctx, ridge.Pubkey); err == nil {
@@ -88,9 +111,13 @@ func TestShareRepeaters(t *testing.T) {
 
 	// An admin shares Valley through the cabin, whose node hasn't heard it:
 	// the contact is added for the check and removed after.
-	got, err := ac.AddRepeater(ctx, valley.Pubkey, "cabin", "vpw")
+	steps = nil
+	got, err := ac.AddRepeater(ctx, valley.Pubkey, "cabin", "vpw", func(s string) { steps = append(steps, s) })
 	if err != nil || got.Check.Access != "admin" || got.Repeater.AddedByClient != "root" {
 		t.Fatalf("admin add: %+v %v", got, err)
+	}
+	if !slices.Contains(steps, "adding the repeater to the node's contacts for the check (removed after)") {
+		t.Errorf("admin add steps: %q", steps)
 	}
 	if cabinMesh.HasContact(valley.Pubkey) {
 		t.Fatal("the check left a contact on the host's node")
@@ -156,10 +183,10 @@ func TestAdminSharesThroughAnotherGateway(t *testing.T) {
 	if _, err := ac.GatewayNearbyRepeaters(ctx, "nowhere"); err == nil || !strings.Contains(err.Error(), "unknown gateway") {
 		t.Fatalf("unknown gateway: %v", err)
 	}
-	if _, err := ac.AddRepeater(ctx, ridge.Pubkey, "nowhere", "look"); err == nil || !strings.Contains(err.Error(), "unknown gateway") {
+	if _, err := ac.AddRepeater(ctx, ridge.Pubkey, "nowhere", "look", nil); err == nil || !strings.Contains(err.Error(), "unknown gateway") {
 		t.Fatalf("add via unknown gateway: %v", err)
 	}
-	got, err := ac.AddRepeater(ctx, ridge.Pubkey, "cabin", "look")
+	got, err := ac.AddRepeater(ctx, ridge.Pubkey, "cabin", "look", nil)
 	if err != nil || got.Check.Access != "guest" || got.Repeater.AddedByClient != "root" || got.Repeater.AddedByGateway != "" {
 		t.Fatalf("admin add: %+v %v", got, err)
 	}
@@ -198,7 +225,7 @@ func TestShareRepeaterEdgeCases(t *testing.T) {
 	startBridge(t, lr, "cabin", tok, startMeshNode(t, "Cabin", mesh))
 	lr.waitGateway("cabin", "online", connected)
 	host := &admin.Client{APIBase: config.HTTPBase(lr.wsBase()), Token: tok}
-	if _, err := host.ShareRepeater(ctx, far.Pubkey, "", "g"); err == nil || !strings.Contains(err.Error(), "secret key") {
+	if _, err := host.ShareRepeater(ctx, far.Pubkey, "", "g", nil); err == nil || !strings.Contains(err.Error(), "secret key") {
 		t.Fatalf("no key: %v", err)
 	}
 
@@ -208,14 +235,14 @@ func TestShareRepeaterEdgeCases(t *testing.T) {
 	startBridge(t, lr2, "cabin", tok2, startMeshNode(t, "Cabin", mesh))
 	lr2.waitGateway("cabin", "online", connected)
 	host2 := &admin.Client{APIBase: config.HTTPBase(lr2.wsBase()), Token: tok2}
-	if _, err := host2.ShareRepeater(ctx, far.Pubkey, "", "g"); err == nil || !strings.Contains(err.Error(), "didn't answer") {
+	if _, err := host2.ShareRepeater(ctx, far.Pubkey, "", "g", nil); err == nil || !strings.Contains(err.Error(), "didn't answer") {
 		t.Fatalf("unreachable: %v", err)
 	}
 
 	// A node whose clock went backwards is set before logging in.
 	mesh.SetUnreachable(far.Pubkey, false)
 	mesh.SetClockOffset(-200 * 24 * time.Hour)
-	if _, err := host2.ShareRepeater(ctx, far.Pubkey, "", "g"); err != nil {
+	if _, err := host2.ShareRepeater(ctx, far.Pubkey, "", "g", nil); err != nil {
 		t.Fatalf("after clock reset: %v", err)
 	}
 	if off := mesh.ClockOffset(); off < -time.Minute {
@@ -307,7 +334,7 @@ func TestRepeaterAttemptsAndPollState(t *testing.T) {
 	host := &admin.Client{APIBase: config.HTTPBase(lr.wsBase()), Token: tok}
 	ac := adminClient(lr)
 
-	if _, err := host.ShareRepeater(ctx, rpt.Pubkey, "", "g"); err != nil {
+	if _, err := host.ShareRepeater(ctx, rpt.Pubkey, "", "g", nil); err != nil {
 		t.Fatal(err)
 	}
 	req := relay.CheckRequest{Gateway: "knob-gw", Client: "telemetry", Priority: relay.PriorityBackground,
@@ -366,11 +393,11 @@ func TestRepeaterAttemptsAndPollState(t *testing.T) {
 	if err := ac.RemoveRepeater(ctx, rpt.Pubkey); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := host.ShareRepeater(ctx, rpt.Pubkey, "", "g"); err == nil {
+	if _, err := host.ShareRepeater(ctx, rpt.Pubkey, "", "g", nil); err == nil {
 		t.Fatal("unreachable repeater shared")
 	}
 	mesh.SetUnreachable(rpt.Pubkey, false)
-	if _, err := host.ShareRepeater(ctx, rpt.Pubkey, "", "g"); err != nil {
+	if _, err := host.ShareRepeater(ctx, rpt.Pubkey, "", "g", nil); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(300 * time.Millisecond) // let queued writes land

@@ -140,8 +140,8 @@ func runRepeater(ctx context.Context, c *admin.Client, sub string, pos []string,
 		if err != nil {
 			return err
 		}
-		fmt.Println("Logging in to the repeater over the mesh (this can take up to a minute)…")
-		res, err := c.ShareRepeater(ctx, pick.Pubkey, pick.Name, pw)
+		fmt.Println("Checking the password through your node, over the mesh. This usually takes under a minute,\nand gives up after 5.")
+		res, err := c.ShareRepeater(ctx, pick.Pubkey, pick.Name, pw, printStep)
 		if err != nil {
 			return err
 		}
@@ -158,6 +158,9 @@ func runRepeater(ctx context.Context, c *admin.Client, sub string, pos []string,
 	}
 	return fmt.Errorf("unknown repeater command %q\n\n%s", sub, repeaterUsage)
 }
+
+// printStep shows a step of a repeater check as the relay reports it.
+func printStep(step string) { fmt.Println("  …", step) }
 
 // pickNearby chooses a repeater. want (from the command line) picks one by
 // exact name or pubkey prefix, or narrows the list to names containing it.
