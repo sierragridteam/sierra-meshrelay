@@ -4,10 +4,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -152,8 +155,22 @@ func cmdApplyUpdate(args []string) error {
 	path := fs.String("config", config.DefaultPath(), "bridge config file")
 	_ = fs.Parse(args)
 	dir := filepath.Dir(*path)
+	// Run by hand, it says what it did (the task's output goes nowhere).
+	// Without access to the folder it would otherwise find nothing staged
+	// and quietly do nothing.
+	if _, err := os.ReadDir(dir); err != nil {
+		if errors.Is(err, iofs.ErrNotExist) {
+			return &errNoBridge{*path}
+		}
+		return fmt.Errorf("can't read the bridge's folder %s: %s", dir, elevateHint)
+	}
 	staged, ready := update.Staged(dir)
 	if !ready && msvc.UpdateTaskCurrent(*path) {
+		if staged == "" {
+			fmt.Println("No update is waiting to install. This bridge runs", version+".")
+		} else {
+			fmt.Printf("%s is downloaded but not ready: the bridge marks it ready once nobody is using the node.\n", staged)
+		}
 		return nil
 	}
 	out, err := logfile.Open(filepath.Join(dir, LogFile))
@@ -163,10 +180,13 @@ func cmdApplyUpdate(args []string) error {
 	defer out.Close()
 	say := func(level, msg string, kv ...any) {
 		fmt.Fprintf(out, "time=%s level=%s msg=%q", time.Now().Format(time.RFC3339), level, msg)
+		fmt.Print(msg)
 		for i := 0; i+1 < len(kv); i += 2 {
 			fmt.Fprintf(out, " %v=%q", kv[i], fmt.Sprint(kv[i+1]))
+			fmt.Printf(" %v=%q", kv[i], fmt.Sprint(kv[i+1]))
 		}
 		fmt.Fprintln(out)
+		fmt.Println()
 	}
 	if !ready {
 		// Last, so that if replacing the task ends this run, nothing is lost.

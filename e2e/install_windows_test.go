@@ -405,6 +405,12 @@ func TestWindowsService(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
+	// Run by hand with nothing to install, apply-update says so.
+	if out, err := exec.Command(installed, "apply-update", "-config", env.config()).CombinedOutput(); err != nil ||
+		!strings.Contains(string(out), "No update is waiting") {
+		t.Fatalf("apply-update by hand: %v\n%s", err, out)
+	}
+
 	if out, err := exec.Command(installed, "uninstall").CombinedOutput(); err != nil {
 		t.Fatalf("uninstall: %v\n%s", err, out)
 	}
