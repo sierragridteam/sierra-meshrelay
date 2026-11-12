@@ -141,6 +141,12 @@ func (h *harness) stop() {
 	if h.server == nil {
 		return
 	}
+	// Stop the relay first, as the deploy handoff does: prefab's Shutdown
+	// gives plugins only what is left of its 2s grace period, and on a loaded
+	// machine the store would close before the audit queue had flushed.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = h.relay.Stop(ctx)
 	_ = h.server.Shutdown()
 	h.store.Close()
 	h.server = nil
