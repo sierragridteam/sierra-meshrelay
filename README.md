@@ -222,7 +222,10 @@ Run these on the host. Linux needs `sudo`; Windows needs an elevated PowerShell.
 meshbridge status                    # green / amber / red, node, last traffic, pause state
 meshbridge pause 1h                  # or: tomorrow (08:00), until-resumed
 meshbridge resume
+meshbridge reconnect                 # look for the node now (after restarting it), not at the next retry
 ```
+
+While the node is unavailable, `status` says since when, why, and where it was last connected. The bridge retries on its own about every 30 seconds (plus the time a network scan takes); `reconnect` skips the wait. If a SIERRA client is using the node, `reconnect` needs `-force`, because it ends that session.
 
 These talk to the running bridge's control API on `127.0.0.1:8737`, authenticated by the `control.token` file next to the config. A pause with no end time (`until-resumed`) survives a restart. A timed pause doesn't.
 
@@ -261,6 +264,7 @@ How `connect` behaves:
 ```sh
 meshbridge admin gateways                   # bridges, nodes, versions, last seen
 meshbridge admin logs <gateway> -f          # a bridge's log lines (never message content)
+meshbridge admin reconnect <gateway>        # have a bridge look for its node now; -yes if a client is using it
 meshbridge admin remove <gateway>           # revoke and disconnect a gateway
 meshbridge admin update-bridges v0.8.1 -gateway mission-gateway   # offer a release to one gateway (canary)
 meshbridge admin update-bridges v0.8.1      # then to all; "off" stops offering

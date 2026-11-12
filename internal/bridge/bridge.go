@@ -107,6 +107,8 @@ type Bridge struct {
 	// The current node outage, for its log lines (runNode's goroutine only).
 	downSince, downLogged time.Time
 	downTries             int
+	// nodeDownAt is downSince for Status (guarded by mu).
+	nodeDownAt time.Time
 
 	relayClass  Class        // how the last relay session ended (guarded by mu)
 	lastTraffic atomic.Int64 // unix nanos of the last frame forwarded either way
@@ -181,6 +183,10 @@ type Status struct {
 	// RelayClass is how the last relay session ended; ClassAuth means the
 	// relay rejected this bridge's credentials.
 	RelayClass Class
+	// NodeDownSince is when the current node outage began (zero: the node
+	// is connected, or hasn't been tried yet). LinkDetail is then the last
+	// link that worked.
+	NodeDownSince time.Time
 }
 
 // Status returns the current state.
@@ -198,6 +204,7 @@ func (b *Bridge) Status() Status {
 		Paused:          b.pause.paused,
 		PauseUntil:      b.pause.until,
 		RelayClass:      b.relayClass,
+		NodeDownSince:   b.nodeDownAt,
 	}
 	if t := b.lastTraffic.Load(); t != 0 {
 		st.LastTraffic = time.Unix(0, t)

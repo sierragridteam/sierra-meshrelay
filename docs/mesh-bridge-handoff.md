@@ -182,6 +182,7 @@ The file is readable only by the service account and admins.
 | `meshbridge run` | Run in the foreground (what the service runs) |
 | `meshbridge status` | Same information as the tray menu |
 | `meshbridge pause [1h\|until-resumed]` / `resume` | Pause and resume |
+| `meshbridge reconnect` | Look for the node now (`POST /find-node`) |
 | `meshbridge find-node` | Run detection and print what it finds |
 | `meshbridge diagnostics` | Send diagnostics |
 | `meshbridge connect <gateway>` | Client mode (below) |

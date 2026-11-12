@@ -319,6 +319,71 @@ func cmdResume(args []string) error {
 	return nil
 }
 
+// reconnectWait is how long reconnect waits to see the node come back.
+const reconnectWait = 20 * time.Second
+
+func cmdReconnect(args []string) error {
+	fs := flag.NewFlagSet("reconnect", flag.ExitOnError)
+	force := fs.Bool("force", false, "reconnect even though a SIERRA client is using the node")
+	c, _, err := controlClient(fs, args)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	d, err := c.Do(ctx, "GET", "/status", nil)
+	if err != nil {
+		return notRunning(err)
+	}
+	if d.Paused {
+		return errors.New("sharing is paused, so the bridge isn't using the node. Resume with: meshbridge resume")
+	}
+	if d.Node.State == meshproto.NodeConnected && d.ClientAttached && !*force {
+		return errors.New("the node is connected and a SIERRA client is using it; reconnecting ends that session. Use -force to do it anyway")
+	}
+	if _, err := c.Do(ctx, "POST", "/find-node", nil); err != nil {
+		return notRunning(err)
+	}
+	fmt.Println("Looking for the node now…")
+	err = waitForNode(d.Node.State == meshproto.NodeConnected, time.Second, reconnectWait, func() (string, error) {
+		d, err = c.Do(ctx, "GET", "/status", nil)
+		return d.Node.State, err
+	})
+	if err != nil {
+		return notRunning(err)
+	}
+	printStatus(d)
+	if d.Node.State != meshproto.NodeConnected {
+		fmt.Println("\nStill not connected. The bridge keeps trying on its own. Check the node is powered on and")
+		fmt.Println("on this network (meshbridge find-node lists the nodes it can see).")
+	}
+	return nil
+}
+
+// waitForNode polls a node's state every interval until it is connected, or
+// timeout passes. If it was connected when the reconnect was asked for, a
+// "connected" counts only after the old link has been seen to drop (or a few
+// seconds have passed, in case the drop was too quick to see).
+func waitForNode(wasConnected bool, interval, timeout time.Duration, state func() (string, error)) error {
+	start := time.Now()
+	dropped := !wasConnected
+	for {
+		time.Sleep(interval)
+		s, err := state()
+		if err != nil {
+			return err
+		}
+		if s != meshproto.NodeConnected {
+			dropped = true
+		}
+		if s == meshproto.NodeConnected && (dropped || time.Since(start) > 5*time.Second) {
+			return nil
+		}
+		if time.Since(start) > timeout {
+			return nil
+		}
+	}
+}
+
 func notRunning(err error) error {
 	if isConnRefused(err) {
 		return fmt.Errorf("the bridge isn't running. Start it with: %s", startHint())
@@ -355,6 +420,17 @@ func printStatus(d control.StatusDoc) {
 		}
 	}
 	fmt.Printf("  Node:      %s\n", node)
+	if d.Node.State != meshproto.NodeConnected && d.NodeDownSince != nil {
+		why := d.Node.Error
+		if why == "" {
+			why = "unavailable"
+		}
+		fmt.Printf("             unavailable since %s (%s): %s\n", since(*d.NodeDownSince), ago(*d.NodeDownSince), why)
+		if d.Node.Detail != "" {
+			fmt.Printf("             last connected at %s\n", d.Node.Detail)
+		}
+		fmt.Println("             the bridge keeps retrying; to try now: meshbridge reconnect")
+	}
 	if d.LastMeshTraffic != nil {
 		fmt.Printf("  Last mesh traffic: %s ago\n", time.Since(*d.LastMeshTraffic).Round(time.Second))
 	}

@@ -536,6 +536,33 @@ func TestNodeOutageIsLoggedOnce(t *testing.T) {
 	}
 }
 
+// Status says when the node became unavailable, and keeps the last link
+// that worked, so `meshbridge status` can say since when and where.
+func TestStatusSaysSinceWhenTheNodeIsDown(t *testing.T) {
+	h := start(t, setup{})
+	s := h.session()
+	expectNode(t, s, meshproto.NodeConnected)
+	if st := h.bridge.Status(); !st.NodeDownSince.IsZero() {
+		t.Fatalf("connected node has NodeDownSince %v", st.NodeDownSince)
+	}
+	h.node.Close() // gone for good
+	h.waitFor("outage start", func(st bridge.Status) bool { return !st.NodeDownSince.IsZero() })
+	if st := h.bridge.Status(); st.LinkDetail == "" {
+		t.Error("lost the last link's detail")
+	}
+}
+
+func TestNodeDownSinceClearsWhenTheNodeIsBack(t *testing.T) {
+	h := start(t, setup{})
+	s := h.session()
+	expectNode(t, s, meshproto.NodeConnected)
+	h.node.DropConn()
+	expectNode(t, s, meshproto.NodeConnected)
+	h.waitFor("outage cleared", func(st bridge.Status) bool {
+		return st.Node.State == meshproto.NodeConnected && st.NodeDownSince.IsZero()
+	})
+}
+
 func TestNodePolicyRefusesSecretsBothWays(t *testing.T) {
 	h := start(t, setup{})
 	s := h.session()

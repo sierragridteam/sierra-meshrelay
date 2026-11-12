@@ -57,6 +57,14 @@ func TestDescribe(t *testing.T) {
 	if resuming.Level != control.Amber || resuming.Reason != "Resuming sharing…" {
 		t.Errorf("just resumed: %s %q", resuming.Level, resuming.Reason)
 	}
+	down := time.Now().Add(-time.Hour)
+	if d := control.Describe(bridge.Status{RelayConnected: true, NodeDownSince: down,
+		Node: meshproto.Node{State: meshproto.NodeDisconnected}}, "gw", "v"); d.NodeDownSince == nil || !d.NodeDownSince.Equal(down) {
+		t.Errorf("down node: NodeDownSince = %v", d.NodeDownSince)
+	}
+	if d := control.Describe(bridge.Status{RelayConnected: true, NodeDownSince: down, Node: connected}, "gw", "v"); d.NodeDownSince != nil {
+		t.Errorf("connected node: NodeDownSince = %v", d.NodeDownSince)
+	}
 	for _, c := range cases {
 		d := control.Describe(c.st, "gw", "v")
 		if d.Level != c.level || d.Reason == "" {

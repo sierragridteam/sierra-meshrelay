@@ -15,6 +15,7 @@ import (
 
 	"github.com/sierragridteam/sierra-meshrelay/internal/admin"
 	"github.com/sierragridteam/sierra-meshrelay/internal/config"
+	"github.com/sierragridteam/sierra-meshrelay/meshproto"
 )
 
 const adminUsage = `meshbridge admin: manage SIERRA gateways, pairing, bridge updates and shared repeaters
@@ -32,6 +33,7 @@ Usage:
   meshbridge admin gateways                      Gateways and their status
   meshbridge admin remove <gateway> [-yes]       Delete a gateway (revokes its token, disconnects its bridge)
   meshbridge admin logs <gateway> [-n 50] [-f]   A bridge's recent log lines and connects/disconnects
+  meshbridge admin reconnect <gateway> [-yes]    Have a bridge look for its node now (ends any session using it)
   meshbridge admin update-bridges [vX.Y.Z|off] [-gateway a,b]
                                                  Show the release offered to bridges; with a version, offer it
                                                  (bridges install it when idle; never a downgrade)
@@ -64,7 +66,7 @@ func cmdAdmin(args []string) (err error) {
 	days := fs.Float64("days", 7, "invite: days until it expires (max 30)")
 	node := fs.String("node", "", "invite: only redeemable by the node with this pubkey")
 	note := fs.String("note", "", "invite: a note for admins")
-	yes := fs.Bool("yes", false, "remove: don't ask for confirmation")
+	yes := fs.Bool("yes", false, "remove, reconnect: don't ask for confirmation")
 	lines := fs.Int("n", 50, "logs: how many lines")
 	follow := fs.Bool("f", false, "logs: keep printing new lines")
 	only := fs.String("gateway", "", "update-bridges: only these gateways (comma-separated)")
@@ -322,6 +324,50 @@ func cmdAdmin(args []string) (err error) {
 		fmt.Println("installs it (bridges installed before v0.7.0 need the installer run once). Watch with: meshbridge admin gateways")
 		return nil
 
+	case "reconnect":
+		name := arg(0)
+		if name == "" {
+			return fmt.Errorf("usage: meshbridge admin reconnect <gateway> [-yes]")
+		}
+		g, err := findGateway(ctx, c, name)
+		if err != nil {
+			return err
+		}
+		if !g.Online {
+			return fmt.Errorf("%s's bridge is offline, so it can't be asked to reconnect. Its host needs to restart it", name)
+		}
+		if g.Lease != nil && !*yes {
+			return fmt.Errorf("%s is in use by %s; reconnecting ends that session. Use -yes to do it anyway", name, g.Lease.Client)
+		}
+		wasConnected := g.Node != nil && g.Node.State == meshproto.NodeConnected
+		if err := c.Relink(ctx, name); err != nil {
+			return err
+		}
+		fmt.Printf("Asked %s to look for its node now…\n", name)
+		err = waitForNode(wasConnected, 2*time.Second, 30*time.Second, func() (string, error) {
+			var err error
+			g, err = findGateway(ctx, c, name)
+			if g.Node == nil {
+				return "", err
+			}
+			return g.Node.State, err
+		})
+		if err != nil {
+			return err
+		}
+		state := "unknown"
+		if g.Node != nil {
+			state = g.Node.State
+			if g.Node.Name != "" {
+				state += " (" + g.Node.Name + ")"
+			}
+		}
+		fmt.Printf("Node: %s\n", state)
+		if g.Node == nil || g.Node.State != meshproto.NodeConnected {
+			fmt.Printf("The bridge keeps trying on its own. See why with: meshbridge admin logs %s\n", name)
+		}
+		return nil
+
 	case "logs":
 		if arg(0) == "" {
 			return fmt.Errorf("usage: meshbridge admin logs <gateway> [-n 50] [-f]")
@@ -380,10 +426,24 @@ func cmdAdmin(args []string) (err error) {
 	return fmt.Errorf("unknown admin command %q\n\n%s", sub, adminUsage)
 }
 
+// findGateway returns the named gateway's current status.
+func findGateway(ctx context.Context, c *admin.Client, name string) (admin.Gateway, error) {
+	gs, err := c.Gateways(ctx)
+	if err != nil {
+		return admin.Gateway{}, err
+	}
+	for _, g := range gs {
+		if g.Name == name {
+			return g, nil
+		}
+	}
+	return admin.Gateway{}, fmt.Errorf("no gateway named %q (see meshbridge admin gateways)", name)
+}
+
 // adminCommands are the admin subcommands, checked before the token is
 // loaded so a typo isn't reported as a missing token.
 var adminCommands = []string{"pairings", "approve", "deny", "invite", "invites", "revoke", "remove", "rm",
-	"gateways", "update-bridges", "logs", "repeaters", "repeater"}
+	"gateways", "update-bridges", "logs", "reconnect", "repeaters", "repeater"}
 
 // parseInterleaved parses flags that may come before or after positional
 // arguments (`approve K7M-4QX cabin -repair`), returning the positionals.

@@ -161,6 +161,8 @@ type StatusDoc struct {
 	PauseUntil      *time.Time `json:"pause_until,omitempty"` // absent while paused: until resumed
 	ClientAttached  bool       `json:"client_attached"`
 	LastMeshTraffic *time.Time `json:"last_mesh_traffic,omitempty"`
+	// NodeDownSince is when the node became unavailable, while it is.
+	NodeDownSince *time.Time `json:"node_down_since,omitempty"`
 }
 
 // NodeDoc is the node part of StatusDoc.
@@ -190,6 +192,10 @@ func Describe(st bridge.Status, gateway, version string) StatusDoc {
 	if !st.LastTraffic.IsZero() {
 		t := st.LastTraffic
 		d.LastMeshTraffic = &t
+	}
+	if !st.NodeDownSince.IsZero() && st.Node.State != meshproto.NodeConnected {
+		t := st.NodeDownSince
+		d.NodeDownSince = &t
 	}
 	switch {
 	case st.Node.State == meshproto.NodeMismatch:

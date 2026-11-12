@@ -87,6 +87,7 @@ The bridge sends its recent log lines (never message content, and with secrets r
 ```powershell
 meshbridge pause 1h          # or: tomorrow (08:00), until-resumed
 meshbridge resume
+meshbridge reconnect         # after restarting the node: look for it now, not at the next retry
 ```
 
 Pausing frees the node's single connection, so you can use your own MeshCore app. See [linux.md](linux.md#pausing) for how pauses behave.
