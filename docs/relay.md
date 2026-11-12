@@ -61,6 +61,7 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` toke
 | `POST /gateways/<name>/rotate-token` | New bridge token (returned once). Old one stops working, and the live session is closed with 4001. |
 | `POST /gateways/<name>/accept-pubkey` | Accept the node's current pubkey after a mismatch |
 | `POST /gateways/<name>/relink` | Send `relink` to the bridge |
+| `GET /gateways/<name>/repeaters/nearby` | The repeaters in that gateway's node's contacts, as the bridge route `GET gateway/repeaters/nearby` returns them. For an admin sharing a repeater through any host's gateway. Takes a short lease on the node; recorded as a `repeaters_listed` event on the gateway. |
 | `DELETE /gateways/<name>` | Revoke and remove |
 | `POST /clients` `{name, role}` / `DELETE /clients/<name>` | Issue and revoke client tokens |
 | `GET /leases` | Current and recent leases (audit) |
@@ -71,7 +72,7 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` toke
 | `GET /invites` / `DELETE /invites/<id>` | List invites (never the passphrase) / revoke one. Revoking doesn't touch gateways already created from it. |
 | `GET /bridge-update` / `PUT /bridge-update` `{version, gateways?}` | The release bridges should run, offered with `update_available` (see PROTOCOL.md). `gateways` limits it (a canary first); `version: ""` stops offering. `PUT` answers with the gateways it was sent to right away. Config `ReleaseBaseURL` says where releases live. |
 | `GET /repeaters` | Shared repeaters (never a password): name, access (`guest`/`admin`), who shared it, last successful read, the gateway it came through, the last problem |
-| `POST /repeaters` `{pubkey, gateway, password, name?}` | Share a repeater. The relay logs in to it through `gateway`'s node and reads its status first; the password is stored only if that works. |
+| `POST /repeaters` `{pubkey, gateway, password, name?}` | Share a repeater. The relay logs in to it through `gateway`'s node and reads its status first; the password is stored only if that works. Recorded as a `repeater_check` event on the gateway. |
 | `DELETE /repeaters/<pubkey>` | Stop sharing a repeater and delete its password |
 
 A minimal read-only status page (gateways, online/offline, last seen) is a nice-to-have and is useful during the pilot.
@@ -90,7 +91,7 @@ A minimal read-only status page (gateways, online/offline, last seen) is a nice-
 
 ### Shared repeaters (implementation)
 
-A host shares a repeater with SIERRA so the relay can log in to it over the mesh and read its status (battery, airtime, packet counts, temperature). Hosts use `meshbridge repeater add|list|remove`, which calls the bridge self-service routes in [PROTOCOL.md](../PROTOCOL.md#bridge-self-service-http) with the bridge's own token. Admins use `meshbridge admin repeaters` and `admin repeater add|remove`.
+A host shares a repeater with SIERRA so the relay can log in to it over the mesh and read its status (battery, airtime, packet counts, temperature). Hosts use `meshbridge repeater add|list|remove`, which calls the bridge self-service routes in [PROTOCOL.md](../PROTOCOL.md#bridge-self-service-http) with the bridge's own token. Admins use `meshbridge admin repeaters` and `admin repeater add|remove`. `admin repeater add <gateway>` lists what any host's gateway has heard and shares one through it; the host's gateway events record both uses of its node, and the repeater is the admin's, not in the host's `meshbridge repeater list`.
 
 - **Checked before stored.** Sharing takes a lease on the gateway's node at normal priority (so it waits for nobody and yields to nobody), logs in, and reads the status. A wrong password, a repeater that doesn't answer, or a busy or paused node is reported and nothing is stored.
 - **Host's node left as it was.** If the node doesn't have the repeater as a contact, it's added for the check and removed after. The node's clock is set if it's more than 5 minutes off, as every companion app does, because a repeater refuses a login whose timestamp isn't newer than the last one from that node.

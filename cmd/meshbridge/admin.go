@@ -38,8 +38,12 @@ Usage:
                                                  Show the release offered to bridges; with a version, offer it
                                                  (bridges install it when idle; never a downgrade)
   meshbridge admin repeaters                     Shared repeaters and their last reading
+  meshbridge admin repeater add <gateway> [name or pubkey]
+                                                 Share a repeater that <gateway>'s node has heard (any
+                                                 host's gateway; recorded in its logs). Pick from its list,
+                                                 or name one. -yes skips the confirmation
   meshbridge admin repeater add <pubkey> <gateway>
-                                                 Share a repeater, checking its password through <gateway>
+                                                 Share a repeater by pubkey, checking its password through <gateway>
   meshbridge admin repeater remove <name or pubkey>
                                                  Stop sharing a repeater (deletes its password)
 
@@ -66,7 +70,7 @@ func cmdAdmin(args []string) (err error) {
 	days := fs.Float64("days", 7, "invite: days until it expires (max 30)")
 	node := fs.String("node", "", "invite: only redeemable by the node with this pubkey")
 	note := fs.String("note", "", "invite: a note for admins")
-	yes := fs.Bool("yes", false, "remove, reconnect: don't ask for confirmation")
+	yes := fs.Bool("yes", false, "remove, reconnect, repeater add: don't ask for confirmation")
 	lines := fs.Int("n", 50, "logs: how many lines")
 	follow := fs.Bool("f", false, "logs: keep printing new lines")
 	only := fs.String("gateway", "", "update-bridges: only these gateways (comma-separated)")
@@ -389,19 +393,58 @@ func cmdAdmin(args []string) (err error) {
 	case "repeater":
 		switch arg(0) {
 		case "add":
-			if arg(1) == "" || arg(2) == "" {
-				return fmt.Errorf("usage: meshbridge admin repeater add <pubkey> <gateway>")
+			if arg(1) == "" {
+				return fmt.Errorf("usage: meshbridge admin repeater add <gateway> [name or pubkey]\n" +
+					"   or: meshbridge admin repeater add <pubkey> <gateway>")
 			}
-			pw, err := readPassword(bufio.NewReader(os.Stdin), "Repeater password (guest if it has one; Enter for none): ")
+			in := bufio.NewReader(os.Stdin)
+			pubkey, gateway := arg(1), arg(2)
+			if !isPubkey(pubkey) || gateway == "" {
+				// add <gateway> [name or pubkey]: pick from what its node has heard.
+				gateway = arg(1)
+				fmt.Printf("Asking %s's node which repeaters it has heard…\n", gateway)
+				near, err := c.GatewayNearbyRepeaters(ctx, gateway)
+				if err != nil {
+					return err
+				}
+				pick, err := pickNearby(near, strings.Join(pos[2:], " "), in, isTerminal(os.Stdin),
+					gateway+"'s node", "meshbridge admin repeater add "+gateway)
+				if err != nil {
+					return err
+				}
+				if pick.Shared {
+					// Sharing again would replace the password and make it an
+					// admin's, taking it out of its host's list.
+					return fmt.Errorf("%s is already shared (see meshbridge admin repeaters)", pick.Name)
+				}
+				fmt.Printf("\nSharing %s (%s…) through %s. The check logs in over the mesh from %s's node,\n", pick.Name, pick.Pubkey[:12], gateway, gateway)
+				fmt.Println("and it's recorded in that gateway's logs. Its host won't see it in `meshbridge repeater list`.")
+				if !*yes {
+					if !isTerminal(os.Stdin) {
+						return fmt.Errorf("pass -yes to share %s without a prompt", pick.Name)
+					}
+					fmt.Print("Share it? [y/N]: ")
+					line, _ := in.ReadString('\n')
+					if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+						fmt.Println("Not shared.")
+						return nil
+					}
+				}
+				pubkey = pick.Pubkey
+			}
+			pw, err := readPassword(in, "Repeater password (guest if it has one; Enter for none): ")
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Logging in to the repeater through %s over the mesh (this can take up to a minute)…\n", arg(2))
-			res, err := c.AddRepeater(ctx, arg(1), arg(2), pw)
+			fmt.Printf("Logging in to the repeater through %s over the mesh (this can take up to a minute)…\n", gateway)
+			res, err := c.AddRepeater(ctx, pubkey, gateway, pw)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("Shared %s (logged in as %s through %s).\n", res.Repeater.Name, res.Check.Access, res.Check.Gateway)
+			if res.Check.Access == "admin" {
+				fmt.Println("That was the admin password. SIERRA only reads status, so a guest password is enough.")
+			}
 			return nil
 		case "remove", "rm":
 			if arg(1) == "" {
@@ -444,6 +487,19 @@ func findGateway(ctx context.Context, c *admin.Client, name string) (admin.Gatew
 // loaded so a typo isn't reported as a missing token.
 var adminCommands = []string{"pairings", "approve", "deny", "invite", "invites", "revoke", "remove", "rm",
 	"gateways", "update-bridges", "logs", "reconnect", "repeaters", "repeater"}
+
+// isPubkey reports whether s is a full 64-hex-character pubkey.
+func isPubkey(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range strings.ToLower(s) {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
+}
 
 // parseInterleaved parses flags that may come before or after positional
 // arguments (`approve K7M-4QX cabin -repair`), returning the positionals.

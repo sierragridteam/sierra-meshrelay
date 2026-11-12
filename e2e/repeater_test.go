@@ -134,6 +134,58 @@ func TestShareRepeaters(t *testing.T) {
 	}
 }
 
+// An admin can see what another host's gateway has heard and share one of
+// those repeaters through it; both uses of the host's node are recorded in
+// that gateway's events.
+func TestAdminSharesThroughAnotherGateway(t *testing.T) {
+	lr := startRelay(t, withSecretKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	ridge := &meshsim.Repeater{Pubkey: hexKey("d"), Name: "Ridge RPT", GuestPassword: "look", BatteryMV: 3900}
+	mesh := meshsim.New(ridge)
+	tok := lr.createGateway("cabin")
+	startBridge(t, lr, "cabin", tok, startMeshNode(t, "Cabin Node", mesh))
+	lr.waitGateway("cabin", "cabin online", connected)
+	ac := adminClient(lr)
+
+	near, err := ac.GatewayNearbyRepeaters(ctx, "cabin")
+	if err != nil || len(near) != 1 || near[0].Pubkey != ridge.Pubkey || near[0].Shared {
+		t.Fatalf("nearby via cabin: %+v %v", near, err)
+	}
+	if _, err := ac.GatewayNearbyRepeaters(ctx, "nowhere"); err == nil || !strings.Contains(err.Error(), "unknown gateway") {
+		t.Fatalf("unknown gateway: %v", err)
+	}
+	if _, err := ac.AddRepeater(ctx, ridge.Pubkey, "nowhere", "look"); err == nil || !strings.Contains(err.Error(), "unknown gateway") {
+		t.Fatalf("add via unknown gateway: %v", err)
+	}
+	got, err := ac.AddRepeater(ctx, ridge.Pubkey, "cabin", "look")
+	if err != nil || got.Check.Access != "guest" || got.Repeater.AddedByClient != "root" || got.Repeater.AddedByGateway != "" {
+		t.Fatalf("admin add: %+v %v", got, err)
+	}
+	if near, _ := ac.GatewayNearbyRepeaters(ctx, "cabin"); len(near) != 1 || !near[0].Shared {
+		t.Fatalf("nearby after sharing: %+v", near)
+	}
+
+	// A bridge token can't use the admin route, even for its own gateway.
+	host := &admin.Client{APIBase: config.HTTPBase(lr.wsBase()), Token: tok}
+	if _, err := host.GatewayNearbyRepeaters(ctx, "cabin"); err == nil {
+		t.Fatal("a bridge token listed through the admin route")
+	}
+
+	_, events, err := ac.Logs(ctx, "cabin", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, e := range events {
+		kinds[e.Kind] = e.Detail
+	}
+	if kinds["repeaters_listed"] != "root" || kinds["repeater_check"] != "root" {
+		t.Fatalf("cabin's events don't record the admin's use: %+v", events)
+	}
+}
+
 func TestShareRepeaterEdgeCases(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

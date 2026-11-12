@@ -270,7 +270,8 @@ meshbridge admin update-bridges v0.8.1 -gateway mission-gateway   # offer a rele
 meshbridge admin update-bridges v0.8.1      # then to all; "off" stops offering
 meshbridge admin update-bridges             # show what is offered now (changes nothing)
 meshbridge admin repeaters                  # shared repeaters: last read, polling state, each gateway's last 24h
-meshbridge admin repeater add <pubkey> <gateway>
+meshbridge admin repeater add <gateway> [name]    # share a repeater any host's gateway has heard (pick from its list)
+meshbridge admin repeater add <pubkey> <gateway>  # or name it by pubkey
 meshbridge admin repeater remove <name or pubkey>
 ```
 

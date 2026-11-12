@@ -122,7 +122,7 @@ func runRepeater(ctx context.Context, c *admin.Client, sub string, pos []string,
 		if err != nil {
 			return err
 		}
-		pick, err := pickNearby(near, strings.Join(pos, " "), in, isTerminal(os.Stdin))
+		pick, err := pickNearby(near, strings.Join(pos, " "), in, isTerminal(os.Stdin), "your node", "meshbridge repeater add")
 		if err != nil {
 			return err
 		}
@@ -163,10 +163,13 @@ func runRepeater(ctx context.Context, c *admin.Client, sub string, pos []string,
 // exact name or pubkey prefix, or narrows the list to names containing it.
 // Otherwise it lists them by name and asks: a number picks one, anything else
 // narrows the list again.
-func pickNearby(near []admin.NearbyRepeater, want string, in *bufio.Reader, interactive bool) (admin.NearbyRepeater, error) {
+//
+// whose names the node in messages ("your node", "cabin's node"); addCmd is
+// the command that names a repeater directly.
+func pickNearby(near []admin.NearbyRepeater, want string, in *bufio.Reader, interactive bool, whose, addCmd string) (admin.NearbyRepeater, error) {
 	if len(near) == 0 {
-		return admin.NearbyRepeater{}, fmt.Errorf("your node hasn't heard any repeaters yet. A repeater shows up once your node hears its advert; " +
-			"send a flood advert from the repeater (or wait for its next one) and try again")
+		return admin.NearbyRepeater{}, fmt.Errorf("%s hasn't heard any repeaters yet. A repeater shows up once the node hears its advert; "+
+			"send a flood advert from the repeater (or wait for its next one) and try again", whose)
 	}
 	all := slices.Clone(near)
 	slices.SortStableFunc(all, func(a, b admin.NearbyRepeater) int {
@@ -188,20 +191,20 @@ func pickNearby(near []admin.NearbyRepeater, want string, in *bufio.Reader, inte
 		}
 		switch len(shown) {
 		case 0:
-			return admin.NearbyRepeater{}, fmt.Errorf("your node doesn't know a repeater whose name contains %q", want)
+			return admin.NearbyRepeater{}, fmt.Errorf("%s doesn't know a repeater whose name contains %q", whose, want)
 		case 1:
 			return shown[0], nil
 		}
 	}
 	for {
 		if len(shown) == len(all) {
-			fmt.Printf("\nRepeaters your node has heard (%d):\n", len(all))
+			fmt.Printf("\nRepeaters %s has heard (%d):\n", whose, len(all))
 		} else {
 			fmt.Printf("\nRepeaters matching (%d of %d):\n", len(shown), len(all))
 		}
 		printNearby(shown)
 		if !interactive {
-			return admin.NearbyRepeater{}, fmt.Errorf("name the repeater: meshbridge repeater add <name, part of a name, or pubkey>")
+			return admin.NearbyRepeater{}, fmt.Errorf("name the repeater: %s <name, part of a name, or pubkey>", addCmd)
 		}
 		for {
 			fmt.Printf("Number [1-%d], or part of a name to search: ", len(shown))

@@ -468,8 +468,26 @@ type NearbyRepeater struct {
 }
 
 func (r *Relay) apiGatewayNearbyRepeaters(req *http.Request, gw *GatewayRecord) (any, error) {
+	return r.nearbyRepeaters(req.Context(), gw.Name)
+}
+
+// apiNearbyRepeaters lists the repeaters any gateway's node has heard, for
+// an admin adding one through someone else's gateway. Using another host's
+// node is recorded in that gateway's events.
+func (r *Relay) apiNearbyRepeaters(req *http.Request, who *ClientRecord) (any, error) {
+	rec, err := r.store.Gateway(req.PathValue("name"))
+	if err != nil {
+		return nil, storeErr(err, "unknown gateway")
+	}
+	r.event(rec.Name, "repeaters_listed", who.Name)
+	logging.Infow(r.ctx, "nearby repeaters listed", "gateway", rec.Name, "by", who.Name)
+	return r.nearbyRepeaters(req.Context(), rec.Name)
+}
+
+// nearbyRepeaters reads the repeaters in gateway's node's contacts.
+func (r *Relay) nearbyRepeaters(ctx context.Context, gateway string) (any, error) {
 	var contacts []meshops.Contact
-	err := r.Use(req.Context(), LeaseRequest{Gateway: gw.Name, Client: "repeater-check", Role: RoleAgent, Priority: PriorityNormal},
+	err := r.Use(ctx, LeaseRequest{Gateway: gateway, Client: "repeater-check", Role: RoleAgent, Priority: PriorityNormal},
 		func(ctx context.Context, s *meshops.Session) error {
 			if _, err := s.AppStart(ctx, "sierra-relay"); err != nil {
 				return err
@@ -656,6 +674,10 @@ func (r *Relay) apiAddRepeater(req *http.Request, who *ClientRecord) (any, error
 	if body.Gateway == "" {
 		return nil, errors.NewC("gateway is required: the password is checked through that gateway's node", codes.InvalidArgument)
 	}
+	if _, err := r.store.Gateway(body.Gateway); err != nil {
+		return nil, storeErr(err, "unknown gateway")
+	}
+	r.event(body.Gateway, "repeater_check", who.Name)
 	return r.addRepeater(req.Context(), body, body.Gateway, "", who.Name)
 }
 
