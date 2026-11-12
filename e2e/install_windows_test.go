@@ -14,6 +14,7 @@ package e2e
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -309,6 +310,42 @@ func TestWindowsService(t *testing.T) {
 	}
 	waitConnected(t, lr, "win-svc", true, 60*time.Second)
 
+	// The update task runs on battery power too (schtasks' defaults don't).
+	assertUpdateTaskRunsOnBattery(t)
+
+	// A bridge installed with the old task (schtasks' defaults) has it
+	// replaced by apply-update, run by that task itself.
+	marker := filepath.Join(filepath.Dir(env.config()), msvc.UpdateTaskMarker)
+	if out, err := exec.Command("schtasks", "/Create", "/TN", msvc.UpdateTask,
+		"/TR", `"`+installed+`" apply-update -config "`+env.config()+`"`,
+		"/SC", "MINUTE", "/MO", "5", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F").CombinedOutput(); err != nil {
+		t.Fatalf("old-style task: %v\n%s", err, out)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if ps, _ := powershell(t, updateTaskBatteryPS); !strings.Contains(ps, "True") {
+		t.Fatalf("the old-style task should skip on battery: %s", ps)
+	}
+	if out, err := exec.Command("schtasks", "/Run", "/TN", msvc.UpdateTask).CombinedOutput(); err != nil {
+		t.Fatalf("schtasks /Run: %v\n%s", err, out)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		ps, _ := powershell(t, updateTaskBatteryPS)
+		if strings.TrimSpace(ps) == "False" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("apply-update didn't refresh the task: %s", ps)
+		}
+		time.Sleep(time.Second)
+	}
+	assertUpdateTaskRunsOnBattery(t)
+	if b, err := os.ReadFile(marker); err != nil || strings.TrimSpace(string(b)) != msvc.UpdateTaskRevision {
+		t.Fatalf("marker: %q %v", b, err)
+	}
+
 	// Auto-update: the relay offers v9.9.10; the service downloads and
 	// verifies it and marks it ready; the update task (run now, rather than
 	// waiting up to 5 minutes) stops the service, swaps the binary, starts it.
@@ -316,7 +353,7 @@ func TestWindowsService(t *testing.T) {
 		t.Fatalf("offer update: HTTP %d", code)
 	}
 	ready := filepath.Join(filepath.Dir(env.config()), "update", "ready")
-	deadline := time.Now().Add(90 * time.Second)
+	deadline = time.Now().Add(90 * time.Second)
 	for {
 		if _, err := os.Stat(ready); err == nil {
 			break
@@ -344,6 +381,35 @@ func TestWindowsService(t *testing.T) {
 	if out, _ := exec.Command(installed, "version").Output(); !strings.Contains(string(out), "v9.9.10") {
 		t.Fatalf("installed binary: %s", out)
 	}
+	// The new version tells the relay how the install went: the task's own
+	// output only reaches the log file on this computer.
+	ac := adminClient(lr)
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		logs, _, err := ac.Logs(context.Background(), "win-svc", 0, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, l := range logs {
+			if l.Msg == "update installed" {
+				found = true
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the relay never heard about the install: %+v", logs)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Run by hand with nothing to install, apply-update says so.
+	if out, err := exec.Command(installed, "apply-update", "-config", env.config()).CombinedOutput(); err != nil ||
+		!strings.Contains(string(out), "No update is waiting") {
+		t.Fatalf("apply-update by hand: %v\n%s", err, out)
+	}
 
 	if out, err := exec.Command(installed, "uninstall").CombinedOutput(); err != nil {
 		t.Fatalf("uninstall: %v\n%s", err, out)
@@ -351,6 +417,16 @@ func TestWindowsService(t *testing.T) {
 	waitConnected(t, lr, "win-svc", false, 30*time.Second)
 	if out, err := exec.Command("schtasks", "/Query", "/TN", msvc.UpdateTask).CombinedOutput(); err == nil {
 		t.Fatalf("uninstall left the update task:\n%s", out)
+	}
+}
+
+const updateTaskBatteryPS = `$s = (Get-ScheduledTask -TaskPath '\SIERRA\' -TaskName 'meshbridge update').Settings; $s.DisallowStartIfOnBatteries`
+
+func assertUpdateTaskRunsOnBattery(t *testing.T) {
+	t.Helper()
+	ps, err := powershell(t, `$s = (Get-ScheduledTask -TaskPath '\SIERRA\' -TaskName 'meshbridge update').Settings; "$($s.DisallowStartIfOnBatteries) $($s.StopIfGoingOnBatteries) $($s.ExecutionTimeLimit)"`)
+	if err != nil || strings.TrimSpace(ps) != "False False PT10M" {
+		t.Fatalf("update task settings (want \"False False PT10M\"): %q %v", ps, err)
 	}
 }
 

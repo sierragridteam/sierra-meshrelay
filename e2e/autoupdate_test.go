@@ -166,6 +166,10 @@ func TestAutoUpdate(t *testing.T) {
 	if strings.Contains(out.String(), "downloading update") {
 		t.Fatalf("offered the update again:\n%s", out)
 	}
+	// It reports what apply-update did, which otherwise only the journal saw.
+	if !strings.Contains(out.String(), "update installed") || !strings.Contains(out.String(), "v9.9.9") {
+		t.Fatalf("didn't report the install:\n%s", out)
+	}
 }
 
 // TestAutoUpdateRefusesUnsignedRelease: a release signed by a key the bridge

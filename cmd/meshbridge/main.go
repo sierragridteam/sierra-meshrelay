@@ -155,6 +155,7 @@ func runBridge(ctx context.Context, path string, logJSON bool, controlAddr strin
 		detail = fmt.Sprintf("%s:%d", cfg.Node.TCPHost, cfg.Node.TCPPort)
 	}
 	log.Info("meshbridge starting", "version", version, "gateway", cfg.Gateway, "relay", cfg.Relay, "node", detail)
+	reportApplied(dir, log)
 	ctx, stopForUpdate := context.WithCancel(ctx)
 	defer stopForUpdate()
 	upd := &autoUpdater{dir: dir, log: log, managed: managed && cfg.Host.AutoUpdate,

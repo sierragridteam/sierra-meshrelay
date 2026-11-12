@@ -113,7 +113,7 @@ func Install(exe, configPath string) (Installed, error) {
 	if err := SecureConfigDir(filepath.Dir(configPath)); err != nil {
 		return Installed{}, err
 	}
-	if err := schtasks(updateTaskArgs(bin, configPath)...); err != nil {
+	if err := RegisterUpdateTask(configPath); err != nil {
 		return Installed{}, fmt.Errorf("creating the update task: %w", err)
 	}
 	if err := start(s); err != nil {
@@ -145,16 +145,42 @@ func Uninstall() error {
 	return s.Delete()
 }
 
-// UpdateTask is the scheduled task that installs staged updates. The
-// service's own account can't write Program Files (on purpose), so a task
-// running as SYSTEM does it: every 5 minutes it runs apply-update, which
-// does nothing unless the bridge has staged a verified update and marked it
-// ready.
-const UpdateTask = `SIERRA\meshbridge update`
+// RegisterUpdateTask creates (or replaces) UpdateTask and records its
+// revision beside the config.
+func RegisterUpdateTask(configPath string) error {
+	bin := BinaryPath()
+	args := "apply-update -config " + syscall.EscapeArg(configPath)
+	f, err := os.CreateTemp("", "meshbridge-update-task-*.xml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.Write(updateTaskXML(bin, args))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	// The marker goes first: apply-update refreshes the task from inside a
+	// run of that task, and if replacing the task ends the run, the new
+	// task must still read as current.
+	marker := filepath.Join(filepath.Dir(configPath), UpdateTaskMarker)
+	if err := os.WriteFile(marker, []byte(UpdateTaskRevision+"\n"), 0o644); err != nil {
+		return err
+	}
+	if err := schtasks("/Create", "/TN", UpdateTask, "/XML", f.Name(), "/RU", "SYSTEM", "/F"); err != nil {
+		_ = os.Remove(marker)
+		return err
+	}
+	return nil
+}
 
-func updateTaskArgs(bin, configPath string) []string {
-	return []string{"/Create", "/TN", UpdateTask, "/TR", commandLine(bin, "apply-update", "-config", configPath),
-		"/SC", "MINUTE", "/MO", "5", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"}
+// UpdateTaskCurrent reports whether the registered task is the current
+// revision (as recorded by RegisterUpdateTask).
+func UpdateTaskCurrent(configPath string) bool {
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(configPath), UpdateTaskMarker))
+	return err == nil && strings.TrimSpace(string(b)) == UpdateTaskRevision
 }
 
 func schtasks(args ...string) error {
