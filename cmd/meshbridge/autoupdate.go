@@ -94,3 +94,49 @@ func (u *autoUpdater) markDone(v string) {
 	}
 	u.done[v] = true
 }
+
+// watchStalled warns, in the logs the relay keeps, when an update marked
+// ready still hasn't been installed: after first, then every later. Whatever
+// installs it restarts the bridge, which ends the watch; so does the staged
+// update going away. notRun says why, when apply-update hasn't recorded an
+// attempt at this version.
+func (u *autoUpdater) watchStalled(first, later time.Duration, notRun string) {
+	start := time.Now()
+	for wait := first; ; wait = later {
+		time.Sleep(wait)
+		if !u.reportStalled(time.Since(start), notRun) {
+			return
+		}
+	}
+}
+
+// reportStalled logs one warning if the staged update is still waiting,
+// and reports whether it is.
+func (u *autoUpdater) reportStalled(waited time.Duration, notRun string) bool {
+	staged, ready := update.Staged(u.dir)
+	if !ready {
+		return false
+	}
+	why := notRun
+	if r, ok := update.ReadResult(u.dir); ok && r.Version == staged && r.Error != "" {
+		why = "the last attempt failed: " + r.Error
+	}
+	u.log.Warn("update downloaded but not installed yet", "version", staged, "waiting", waited.Round(time.Minute),
+		"why", why, "fix", `on the bridge's computer, run "meshbridge apply-update" as administrator`)
+	return true
+}
+
+// reportApplied logs, once, what apply-update did with the last update
+// (see update.Result): it ran outside the bridge, so this is how the relay
+// hears about it.
+func reportApplied(dir string, log *slog.Logger) {
+	r, ok := update.TakeResult(dir)
+	if !ok {
+		return
+	}
+	if r.Installed {
+		log.Info("update installed", "version", r.Version, "was", r.Was, "at", r.Time.Format(time.RFC3339))
+		return
+	}
+	log.Error("update not installed", "version", r.Version, "error", r.Error, "at", r.Time.Format(time.RFC3339))
+}

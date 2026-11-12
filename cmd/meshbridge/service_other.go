@@ -60,12 +60,16 @@ func cmdApplyUpdate(args []string) error {
 		fmt.Fprintln(os.Stderr, "meshbridge: update not installed:", err)
 		return nil
 	}
-	v, err := update.Apply(filepath.Dir(*path), exe, version, nil)
+	dir := filepath.Dir(*path)
+	staged, _ := update.Staged(dir)
+	v, err := update.Apply(dir, exe, version, nil)
 	switch {
 	case err != nil:
 		fmt.Fprintln(os.Stderr, "meshbridge: update not installed:", err)
+		_ = update.WriteResult(dir, update.Result{Version: staged, Was: version, Error: err.Error()})
 	case v != "":
 		fmt.Printf("meshbridge: installed %s (was %s)\n", v, version)
+		_ = update.WriteResult(dir, update.Result{Version: v, Was: version, Installed: true})
 	}
 	return nil
 }
