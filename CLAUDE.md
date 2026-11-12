@@ -4,7 +4,7 @@ Instructions for AI agents working in this repo. See README.md for what the repo
 
 ## Commits
 
-- Don't add `Co-Authored-By:` trailers (or any other AI attribution) to commit messages. `.claude/settings.json` turns off Claude Code's default commit trailer; follow the same rule with any other tool.
+- Don't add `Co-Authored-By:` trailers (or any other AI attribution, such as a "Generated with" footer) to commit messages or pull request descriptions. `.claude/settings.json` turns off Claude Code's default commit trailer; follow the same rule with any other tool.
 
 ## Public repo
 
