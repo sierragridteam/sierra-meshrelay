@@ -64,7 +64,9 @@ type RepeaterRecord struct {
 	Poll  *RepeaterPollState `json:"poll,omitempty"`
 	Links []RepeaterLink     `json:"links,omitempty"`
 
-	sealed []byte
+	// Sealed is the password sealed with Config.SecretKey (see seal). Never
+	// serialized; only the store and the in-process poller see it.
+	Sealed []byte `json:"-"`
 }
 
 // RepeaterCredential is a shared repeater with its password, for the
@@ -85,7 +87,7 @@ const repeaterCols = `pubkey, name, password_sealed, access, added_by_gateway, a
 func scanRepeater(row interface{ Scan(...any) error }) (*RepeaterRecord, error) {
 	var r RepeaterRecord
 	var created, updated, attempt, ok int64
-	if err := row.Scan(&r.Pubkey, &r.Name, &r.sealed, &r.Access, &r.AddedByGateway, &r.AddedByClient, &created,
+	if err := row.Scan(&r.Pubkey, &r.Name, &r.Sealed, &r.Access, &r.AddedByGateway, &r.AddedByClient, &created,
 		&updated, &attempt, &ok, &r.LastGateway, &r.LastError); err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -127,7 +129,7 @@ func (s *Store) Repeaters() ([]*RepeaterRecord, error) {
 
 // putRepeater inserts or replaces a repeater's password and who added it,
 // keeping its poll history.
-func (s *Store) putRepeater(r RepeaterRecord, now time.Time) error {
+func (s *Store) PutRepeater(r RepeaterRecord, now time.Time) error {
 	_, err := s.db.Exec(`INSERT INTO repeaters (pubkey, name, password_sealed, access, added_by_gateway,
 			added_by_client, created_at, updated_at, last_ok_at, last_gateway)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -135,7 +137,7 @@ func (s *Store) putRepeater(r RepeaterRecord, now time.Time) error {
 			access = excluded.access, added_by_gateway = excluded.added_by_gateway,
 			added_by_client = excluded.added_by_client, updated_at = excluded.updated_at,
 			last_ok_at = excluded.last_ok_at, last_gateway = excluded.last_gateway, last_error = ''`,
-		r.Pubkey, r.Name, r.sealed, r.Access, r.AddedByGateway, r.AddedByClient, ms(now), ms(now), ms(now), r.LastGateway)
+		r.Pubkey, r.Name, r.Sealed, r.Access, r.AddedByGateway, r.AddedByClient, ms(now), ms(now), ms(now), r.LastGateway)
 	return err
 }
 
@@ -217,7 +219,7 @@ func (r *Relay) RepeaterCredentials() ([]RepeaterCredential, error) {
 	}
 	var out []RepeaterCredential
 	for _, rec := range recs {
-		pw, err := r.open(rec.Pubkey, rec.sealed)
+		pw, err := r.open(rec.Pubkey, rec.Sealed)
 		if err != nil {
 			logging.Warnw(r.ctx, "repeater password unreadable; skipping it", "repeater", rec.Pubkey, "error", err)
 			continue
@@ -239,7 +241,7 @@ func (r *Relay) RecordRepeaterPoll(pubkey, gateway string, err error) {
 		text = RepeaterErrorText(err)
 	}
 	now := r.now()
-	r.audit("repeater poll", func(s *Store) error { return s.RecordRepeaterPoll(pubkey, gateway, now, text) })
+	r.audit("repeater poll", func(s Storage) error { return s.RecordRepeaterPoll(pubkey, gateway, now, text) })
 }
 
 // RepeaterErrorText describes a repeater operation's failure for people.
@@ -565,8 +567,8 @@ func (r *Relay) addRepeater(ctx context.Context, body addRepeaterBody, gateway, 
 		return nil, errors.Wrap(err, 0)
 	}
 	rec := RepeaterRecord{Pubkey: pk, Name: check.Name, Access: check.Access, AddedByGateway: byGateway,
-		AddedByClient: byClient, LastGateway: gateway, sealed: sealed}
-	if err := r.store.putRepeater(rec, r.now()); err != nil {
+		AddedByClient: byClient, LastGateway: gateway, Sealed: sealed}
+	if err := r.store.PutRepeater(rec, r.now()); err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
 	logging.Infow(r.ctx, "repeater shared", "repeater", pk, "name", check.Name, "access", check.Access,
@@ -640,7 +642,7 @@ func (r *Relay) withPolling(recs []*RepeaterRecord) {
 			st.Reading = nil // the poller's; the lists show the schedule
 			rec.Poll = &st
 		}
-		if links, err := r.store.RepeaterLinks(rec.Pubkey, since); err == nil && len(links) > 0 {
+		if links, err := repeaterLinks(r.store, rec.Pubkey, since); err == nil && len(links) > 0 {
 			rec.Links = links
 		}
 	}
