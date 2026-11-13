@@ -279,7 +279,15 @@ meshbridge admin repeaters                  # shared repeaters: last read, polli
 meshbridge admin repeater add <gateway> [name]    # share a repeater any host's gateway has heard (pick from its list)
 meshbridge admin repeater add <pubkey> <gateway>  # or name it by pubkey
 meshbridge admin repeater remove <name or pubkey>
+meshbridge admin access grant <gateway> <label>   # a token that opens that gateway only (180 days); printed once
+meshbridge admin access list [gateway]      # access tokens: what each opens, expiry, last use
+meshbridge admin access remove <gateway>.<label>  # revoke one; ends any session using it
+meshbridge admin clients                    # every token, admin ones included
+meshbridge admin client add <name> -expires 90d   # an admin token for another admin or a tool
+meshbridge admin client set <name> -role admin    # keep a token with a retired role (operator, agent) working
 ```
+
+**Giving someone remote access to a gateway**, such as a host who wants to use their own node with MeshCore apps while away, means issuing an access token with `admin access grant`. It opens that one gateway through `meshbridge connect`, and nothing else. Send it privately; `grant` prints the instructions to send with it. Rotating the gateway's bridge token, re-pairing the gateway or removing it revokes its access tokens.
 
 ## Development
 
