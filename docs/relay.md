@@ -51,7 +51,8 @@ A client token carries one of two roles:
 - **Revoked automatically** when the gateway's bridge token is rotated (it may have leaked), when the gateway is re-paired (it may now be someone else's), and when the gateway is deleted. Each records an `access_revoked` event; active leases end.
 - **The prefix matches the role.** An `smh_` token is always a host token, and an `smc_` token never is. A relay from before host tokens (v0.14.0 and earlier) accepts only `smc_`, so rolling back fails closed instead of letting host tokens open every gateway.
 - **Retired roles.** `operator` and `agent` tokens, issued before v0.15.0, are refused everywhere (403, "tokens with the operator role no longer work"). `PATCH /clients/<name> {"role": "admin"}` turns one into an admin token. In-process lease holders (the relay's repeater checks, sierra-data's pollers) still lease with these roles; they pass no token.
-- **Expiry and last use.** An expired token gets 401 "this token has expired", which doesn't count toward the IP lockout. The relay records each token's last use, at most hourly.
+- **Expiry and last use.** An expired token gets 401 "this token has expired", which doesn't count toward the IP lockout. A lease ends when its token expires, however it's renewed. Issuing a host token clears its gateway's expired ones. The relay records each token's last use, at most hourly.
+- **Revocation fails closed.** Rotation and re-pair revoke the access tokens first; if that fails, the bridge token isn't rotated (or the gateway re-paired) and the admin retries. A token revoked while its lease was being granted loses the lease at once.
 
 ### Admin API
 
@@ -68,7 +69,7 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` token. A host toke
 | `POST /gateways/<name>/relink` | Send `relink` to the bridge |
 | `GET /gateways/<name>/repeaters/nearby` | The repeaters in that gateway's node's contacts, as the bridge route `GET gateway/repeaters/nearby` returns them. For an admin sharing a repeater through any host's gateway. Takes a short lease on the node (client `repeater-list`); recorded as a `repeaters_listed` event on the gateway. |
 | `DELETE /gateways/<name>` | Revoke and remove |
-| `POST /clients` `{name, role: "admin", expires_in_days?, note?}` | Issue an admin token. Returns the token **once**. |
+| `POST /clients` `{name, role: "admin", expires_in_days?, note?}` | Issue an admin token (a name without dots: `<gateway>.<label>` names host tokens). Returns the token **once**. |
 | `POST /clients` `{role: "host", gateway, label, expires_in_days?, note?}` | Issue a host token for `gateway`, named `<gateway>.<label>`. Returns `{client, role, gateway, expires_at, token}`, the token **once**. 404 for an unknown gateway, 409 at the cap. |
 | `PATCH /clients/<name>` `{role: "admin"}` | Turn an `operator` or `agent` token into an admin token. The only role change allowed. |
 | `GET /clients` / `DELETE /clients/<name>` | List tokens (role, gateway, expiry, last use, issuer, note; never the hashes); revoke one, ending its leases |
@@ -187,7 +188,7 @@ Phase 1 is built: `cmd/mesh-relay` (binary) and `internal/meshrelay` (package). 
 - **The rate limit throttles.** See the wire spec. Disconnecting would cut off a healthy bridge whenever its node dumps a contact list.
 - **Auth lockout.** 10 failures from one IP within 10 min lock that IP out for 15 min (HTTP 429) on every relay route. Behind the proxy, set `meshRelay.clientIpHeader` to `X-Forwarded-For`. The relay image sets this by default. The relay uses the rightmost entry, which is the one the proxy appended. Without this setting, every client looks like the proxy and one bad bridge would lock everyone out.
 - **Payload debug.** `meshRelay.debugPayloadGateways` logs frames as hex at debug level for the gateways listed. It's off by default, and the relay logs a warning at startup for each gateway listed.
-- **Public status.** `GET /mesh/relay/api/status` needs no token and feeds the public site's `/relay` page. For each gateway it reports name, whether it's online, node state, whether a session could start now, whether one is in use and by what kind of client (the holder's role, never its name; a host's lease shows as `operator`, so the page never says the host is on their own node), bridge version and link kind, and last seen. It never includes pubkeys, node names, notes, lease holder names, the bridge's OS, or link detail. Gateway names are public through it, so choose names that don't pinpoint a house.
+- **Public status.** `GET /mesh/relay/api/status` needs no token and feeds the public site's `/relay` page. For each gateway it reports name, whether it's online, node state, whether a session could start now, whether one is in use and by what kind of client (never its name: a person's session, an admin's or a host's, shows as `operator` and an automated one as `agent`, so the page never says the host is on their own node), bridge version and link kind, and last seen. It never includes pubkeys, node names, notes, lease holder names, the bridge's OS, or link detail. Gateway names are public through it, so choose names that don't pinpoint a house.
 - **Metrics.** `GET /mesh/relay/api/metrics` returns JSON counters, and the relay logs a `relay metrics` line every minute with per-minute rates.
 
 ### Deployment requirements

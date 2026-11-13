@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dpup/prefab"
@@ -424,6 +425,14 @@ func (r *Relay) apiRotateToken(req *http.Request, who *ClientRecord) (any, error
 	if err != nil {
 		return nil, storeErr(err, "unknown gateway")
 	}
+	// The bridge token may have leaked, and a host issues access tokens
+	// with it: theirs go too. First, so that if it fails nothing has
+	// changed yet and the admin can retry.
+	revoked, err := r.revokeHostTokens(rec.Name, "bridge token rotated by "+who.Name)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("revoking the gateway's access tokens (%d revoked; token not rotated): %w",
+			revoked, err), 0)
+	}
 	tok, err := MintToken(BridgeTokenPrefix)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
@@ -433,12 +442,6 @@ func (r *Relay) apiRotateToken(req *http.Request, who *ClientRecord) (any, error
 	}
 	closed := r.closeBridge(rec.Name, CloseBadToken, "token rotated")
 	r.event(rec.Name, "token_rotated", who.Name)
-	// The bridge token may have leaked, and a host issues access tokens
-	// with it: theirs go too.
-	revoked, err := r.revokeHostTokens(rec.Name, "bridge token rotated by "+who.Name)
-	if err != nil {
-		return nil, errors.Wrap(err, 0)
-	}
 	return map[string]any{"bridge_token": tok, "closed_session": closed, "access_tokens_revoked": revoked,
 		"note": oneTimeNote}, nil
 }
@@ -603,8 +606,9 @@ func (r *Relay) apiCreateClient(req *http.Request, who *ClientRecord) (any, erro
 	if body.Gateway != "" || body.Label != "" {
 		return nil, errors.NewC("an admin token isn't scoped: drop gateway and label", codes.InvalidArgument)
 	}
-	if !ValidClientName(body.Name) {
-		return nil, errors.NewC("client name must be a lowercase slug", codes.InvalidArgument)
+	if !ValidClientName(body.Name) || strings.Contains(body.Name, ".") {
+		// No dots: <gateway>.<label> names a host token.
+		return nil, errors.NewC("client name must be a lowercase slug, without dots", codes.InvalidArgument)
 	}
 	if _, isBootstrap := r.cfg.BootstrapAdmins[body.Name]; isBootstrap {
 		return nil, errors.NewC("that name is a bootstrap admin", codes.AlreadyExists)
@@ -674,6 +678,7 @@ func (r *Relay) apiDeleteClient(req *http.Request, who *ClientRecord) (any, erro
 		return nil, storeErr(err, "unknown client")
 	}
 	ended := r.EndLeasesFor(name, ReasonRevoked)
+	r.forgetTouch(name)
 	logging.Infow(r.ctx, "client token revoked", "client", name, "by", who.Name, "leases_ended", ended)
 	return map[string]any{"deleted": name, "leases_ended": ended}, nil
 }

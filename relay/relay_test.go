@@ -100,17 +100,27 @@ func newHarness(t *testing.T, cfg Config) *harness {
 // every test also covers prefab's middleware (gzip, security headers) in front
 // of the websocket upgrade.
 func newHarnessAt(t *testing.T, cfg Config, dbPath string) *harness {
+	return newHarnessWith(t, cfg, dbPath, nil)
+}
+
+// newHarnessWith is newHarnessAt with the relay's store wrapped (to inject
+// faults); h.store stays the real one.
+func newHarnessWith(t *testing.T, cfg Config, dbPath string, wrap func(Storage) Storage) *harness {
 	t.Helper()
 	logs := &syncBuffer{}
 	ctx := logging.With(context.Background(), newBufLogger(logs))
 	st, err := OpenStore(ctx, dbPath, time.Second)
 	require.NoError(t, err)
+	var relayStore Storage = st
+	if wrap != nil {
+		relayStore = wrap(st)
+	}
 	admin, _ := MintToken(ClientTokenPrefix)
 	cfg.BootstrapAdmins = map[string]string{"root": TokenHash(admin)}
 	if cfg.TickInterval == 0 {
 		cfg.TickInterval = 20 * time.Millisecond
 	}
-	r := New(ctx, cfg, st)
+	r := New(ctx, cfg, relayStore)
 	port := freePort(t)
 	server := prefab.New(prefab.WithContext(ctx), prefab.WithHost("127.0.0.1"), prefab.WithPort(port),
 		prefab.WithPlugin(r))

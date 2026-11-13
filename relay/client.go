@@ -80,13 +80,13 @@ func (r *Relay) handleClient(w http.ResponseWriter, req *http.Request) {
 	c := newConn(ws, r.cfg.PingInterval)
 	r.m.clientConns.Add(1)
 	defer r.m.clientConns.Add(-1)
-	r.serveClient(c, name, who, preempt)
+	r.serveClient(c, name, who, TokenHash(bearerToken(req.Header.Get("Authorization"))), preempt)
 }
 
-func (r *Relay) serveClient(c *conn, gateway string, who *ClientRecord, preempt bool) {
+func (r *Relay) serveClient(c *conn, gateway string, who *ClientRecord, tokenHash string, preempt bool) {
 	ctx := scoped(r.ctx, "gateway", gateway, "client", who.Name)
 	l, err := r.Acquire(LeaseRequest{Gateway: gateway, Client: who.Name, Role: who.Role,
-		Priority: PriorityNormal, Preempt: preempt, Holder: wsHolder{c}})
+		Priority: PriorityNormal, Preempt: preempt, Holder: wsHolder{c}, NotAfter: who.ExpiresAt})
 	var unavailable *UnavailableError
 	switch {
 	case errors.Is(err, ErrBusy):
@@ -106,6 +106,15 @@ func (r *Relay) serveClient(c *conn, gateway string, who *ClientRecord, preempt 
 		return
 	}
 	defer r.Release(l)
+	// The token may have been revoked between authClient and Acquire, when
+	// revoking found no lease to end: look again now that there is one.
+	if !who.Bootstrap {
+		if _, err := r.store.ClientByToken(tokenHash); errors.Is(err, ErrNotFound) {
+			r.EndLeasesFor(who.Name, ReasonRevoked)
+			logging.Infow(ctx, "lease ended: token revoked while it was granted")
+			return
+		}
+	}
 
 	limiter := newRateLimiter(r.cfg.FrameRate, r.cfg.FrameBurst)
 	for {

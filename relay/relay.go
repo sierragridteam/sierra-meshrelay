@@ -458,6 +458,7 @@ type Lease struct {
 	holder   LeaseHolder
 
 	started   time.Time
+	notAfter  time.Time // LeaseRequest.NotAfter
 	expires   time.Time // guarded by Relay.mu
 	warned    bool      // guarded by Relay.mu
 	ended     bool      // guarded by Relay.mu
@@ -488,6 +489,9 @@ type LeaseRequest struct {
 	// (admins only; the caller checks).
 	Preempt bool
 	Holder  LeaseHolder
+	// NotAfter, if set, is when the lease must end however it is renewed:
+	// the expiry of the token it was granted to.
+	NotAfter time.Time
 }
 
 // ErrBusy means another holder has the gateway.
@@ -545,7 +549,11 @@ func (r *Relay) Acquire(req LeaseRequest) (*Lease, error) {
 	}
 	l := &Lease{
 		ID: randomID("l_"), Gateway: req.Gateway, Client: req.Client, Role: req.Role,
-		Priority: req.Priority, holder: req.Holder, started: now, expires: now.Add(r.cfg.LeaseDuration),
+		Priority: req.Priority, holder: req.Holder, started: now, notAfter: req.NotAfter,
+		expires: now.Add(r.cfg.LeaseDuration),
+	}
+	if !l.notAfter.IsZero() && l.notAfter.Before(l.expires) {
+		l.expires = l.notAfter
 	}
 	l.touch(now)
 	g.lease = l
@@ -581,6 +589,14 @@ func (r *Relay) Renew(l *Lease) error {
 		}
 		if !next.After(l.expires) {
 			return errors.New("lease has reached its maximum length")
+		}
+	}
+	if !l.notAfter.IsZero() {
+		if !next.Before(l.notAfter) {
+			next = l.notAfter
+		}
+		if !next.After(l.expires) {
+			return errors.New("the token this lease was granted to expires; it can't be renewed")
 		}
 	}
 	l.expires, l.warned = next, false

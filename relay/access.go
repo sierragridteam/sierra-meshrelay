@@ -60,11 +60,31 @@ func (r *Relay) IssueHostToken(q HostTokenRequest) (*IssuedToken, error) {
 	if len(q.Note) > 200 {
 		return nil, errors.NewC("the note is longer than 200 characters", codes.InvalidArgument)
 	}
+	if _, isBootstrap := r.cfg.BootstrapAdmins[name]; isBootstrap {
+		return nil, errors.NewC("that name is a bootstrap admin", codes.AlreadyExists)
+	}
 	existing, err := r.HostTokens(q.Gateway)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
-	if len(existing) >= MaxHostTokensPerGateway {
+	// Expired tokens open nothing: clear them out, so they don't hold the
+	// gateway's slots (or labels) forever.
+	now := r.now()
+	live := existing[:0]
+	for _, c := range existing {
+		if !c.ExpiresAt.IsZero() && !now.Before(c.ExpiresAt) {
+			if err := r.store.DeleteClient(c.Name); err != nil && !stderrors.Is(err, ErrNotFound) {
+				return nil, errors.Wrap(err, 0)
+			}
+			r.forgetTouch(c.Name)
+			continue
+		}
+		live = append(live, c)
+	}
+	// Counting then creating isn't atomic: two admins issuing at once could
+	// pass the cap by one. Only admins issue for now; host self-service
+	// will need a conditional create.
+	if len(live) >= MaxHostTokensPerGateway {
 		return nil, conflict(fmt.Sprintf("gateway %s already has %d access tokens, the most it can have; remove one first",
 			q.Gateway, MaxHostTokensPerGateway))
 	}
@@ -72,7 +92,6 @@ func (r *Relay) IssueHostToken(q HostTokenRequest) (*IssuedToken, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
-	now := r.now()
 	rec := ClientRecord{Name: name, Role: RoleHost, CreatedAt: now, Gateway: q.Gateway,
 		ExpiresAt: now.Add(time.Duration(days) * 24 * time.Hour), CreatedBy: q.By, Note: q.Note}
 	if err := r.store.CreateClient(rec, TokenHash(tok)); err != nil {
@@ -112,6 +131,7 @@ func (r *Relay) revokeHostTokens(gateway, why string) (int, error) {
 			return n, err
 		}
 		r.EndLeasesFor(c.Name, ReasonRevoked)
+		r.forgetTouch(c.Name)
 		n++
 	}
 	if n > 0 {
@@ -121,12 +141,22 @@ func (r *Relay) revokeHostTokens(gateway, why string) (int, error) {
 	return n, nil
 }
 
-// publicRole is the lease holder's role as the public status shows it: a
-// host lease reads as a person's, so the page never says "the host is on
-// their node now".
+// publicRole is the lease holder's role as the public status shows it. A
+// person's session (an admin's or a host's) reads as "operator", whoever it
+// is, so the page tells a person from an automated session (agent) and
+// never says "the host is on their node now". No token holds the operator
+// role any more, so showing host alone as operator would give it away.
 func publicRole(role Role) Role {
-	if role == RoleHost {
+	switch role {
+	case RoleHost, RoleAdmin, RoleOperator:
 		return RoleOperator
 	}
 	return role
+}
+
+// forgetTouch drops a revoked client from the last-use throttle.
+func (r *Relay) forgetTouch(name string) {
+	r.touchMu.Lock()
+	delete(r.touched, name)
+	r.touchMu.Unlock()
 }

@@ -1,9 +1,12 @@
 package relay
 
 import (
+	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -259,4 +262,131 @@ func TestLastUse(t *testing.T) {
 		cs, err := h.store.Clients()
 		return err == nil && len(cs) == 1 && !cs[0].LastUsedAt.IsZero()
 	}, "last use never recorded")
+}
+
+// flakyStore fails the operations a test switches on.
+type flakyStore struct {
+	Storage
+	failDelete     atomic.Bool
+	goneAfterFirst atomic.Bool
+	tokenLookups   atomic.Int32
+}
+
+func (f *flakyStore) DeleteClient(name string) error {
+	if f.failDelete.Load() {
+		return errors.New("store unavailable")
+	}
+	return f.Storage.DeleteClient(name)
+}
+
+func (f *flakyStore) ClientByToken(hash string) (*ClientRecord, error) {
+	if f.tokenLookups.Add(1) > 1 && f.goneAfterFirst.Load() {
+		return nil, ErrNotFound
+	}
+	return f.Storage.ClientByToken(hash)
+}
+
+func flakyHarness(t *testing.T, cfg Config) (*harness, *flakyStore) {
+	t.Helper()
+	var f *flakyStore
+	h := newHarnessWith(t, cfg, filepath.Join(t.TempDir(), "relay.db"), func(s Storage) Storage {
+		f = &flakyStore{Storage: s}
+		return f
+	})
+	return h, f
+}
+
+// Revocation fails closed: if the host tokens can't be revoked, the bridge
+// token isn't rotated and the gateway isn't re-paired, so nothing is left
+// half done with the old tokens still live.
+func TestRevocationFailsClosed(t *testing.T) {
+	h, flaky := flakyHarness(t, Config{})
+	tok := h.createGateway("gw-a")
+	h.bridge("gw-a", tok, pubkeyA)
+	host := h.hostToken("gw-a", "jay")
+	before, err := h.store.Gateway("gw-a")
+	require.NoError(t, err)
+
+	flaky.failDelete.Store(true)
+	code, out := h.api("POST", "/gateways/gw-a/rotate-token", h.admin, nil)
+	assert.Equal(t, http.StatusInternalServerError, code, out)
+	_, _, err = h.relay.issueGateway("gw-a", "", "", true)
+	assert.Error(t, err, "re-pair")
+	flaky.failDelete.Store(false)
+
+	after, err := h.store.Gateway("gw-a")
+	require.NoError(t, err)
+	assert.Equal(t, before.TokenHash, after.TokenHash, "the bridge token wasn't changed")
+	assert.Equal(t, true, gatewayStatus(h, "gw-a")["online"], "the bridge wasn't disconnected")
+	c := h.client("gw-a", host, "")
+	expectControl(t, c, "lease")
+}
+
+// A token revoked between its check and its lease (when revoking found no
+// lease to end) loses the lease as soon as it's granted.
+func TestRevokedWhileGranted(t *testing.T) {
+	h, flaky := flakyHarness(t, Config{})
+	tok := h.createGateway("gw-a")
+	b := h.bridge("gw-a", tok, pubkeyA)
+	host := h.hostToken("gw-a", "jay")
+	flaky.tokenLookups.Store(0)
+	flaky.goneAfterFirst.Store(true)
+	c := h.client("gw-a", host, "")
+	expectControl(t, c, "lease")
+	b.expect("attach")
+	m := expectControl(t, c, "lease_ending")
+	assert.Equal(t, ReasonRevoked, m["reason"])
+}
+
+// A lease never outlasts its token: it ends when the token expires, and
+// renewing past that is refused.
+func TestLeaseEndsWithItsToken(t *testing.T) {
+	h := newHarness(t, Config{LeaseDuration: time.Hour, LeaseWarning: 500 * time.Millisecond})
+	tok := h.createGateway("gw-a")
+	h.bridge("gw-a", tok, pubkeyA)
+	smh, err := MintToken(HostTokenPrefix)
+	require.NoError(t, err)
+	expires := time.Now().Add(1500 * time.Millisecond)
+	require.NoError(t, h.store.CreateClient(ClientRecord{Name: "gw-a.short", Role: RoleHost, Gateway: "gw-a",
+		CreatedAt: time.Now(), ExpiresAt: expires}, TokenHash(smh)))
+
+	c := h.client("gw-a", smh, "")
+	lease := expectControl(t, c, "lease")
+	at, err := time.Parse(time.RFC3339, lease["expires_at"].(string))
+	require.NoError(t, err)
+	assert.False(t, at.After(expires), "the lease runs to %s, past the token's %s", at, expires)
+
+	require.NoError(t, c.WriteJSON(map[string]any{"type": "renew", "lease": lease["lease"]}))
+	m := expectControl(t, c, "error")
+	assert.Equal(t, "renew_denied", m["code"])
+	assert.Contains(t, m["message"], "token")
+	m = expectControl(t, c, "lease_ending")
+	assert.Equal(t, ReasonExpiry, m["reason"])
+	expectClosed(t, c, CloseNormal)
+}
+
+func TestPublicRole(t *testing.T) {
+	assert.Equal(t, RoleOperator, publicRole(RoleHost))
+	assert.Equal(t, RoleOperator, publicRole(RoleAdmin), "a person's session, whoever")
+	assert.Equal(t, RoleAgent, publicRole(RoleAgent), "an automated session")
+}
+
+// Expired host tokens don't hold the gateway's slots or labels.
+func TestExpiredTokensFreeTheirSlots(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.createGateway("gw-a")
+	for i := range MaxHostTokensPerGateway {
+		smh, err := MintToken(HostTokenPrefix)
+		require.NoError(t, err)
+		require.NoError(t, h.store.CreateClient(ClientRecord{Name: "gw-a.old" + string(rune('a'+i)), Role: RoleHost,
+			Gateway: "gw-a", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(-time.Minute)}, TokenHash(smh)))
+	}
+	h.hostToken("gw-a", "olda") // a slot and an expired token's label
+	cs, err := h.relay.HostTokens("gw-a")
+	require.NoError(t, err)
+	assert.Len(t, cs, 1, "the expired ones were cleared")
+
+	code, out := h.api("POST", "/clients", h.admin, map[string]any{"name": "gw-a.x", "role": "admin"})
+	assert.Equal(t, http.StatusBadRequest, code, "an admin name with a dot reads as a host token")
+	assert.Contains(t, out["message"], "without dots")
 }
