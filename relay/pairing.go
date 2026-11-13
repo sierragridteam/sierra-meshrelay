@@ -498,6 +498,11 @@ func (r *Relay) issueGateway(name, pinned, notes string, allowRepair bool) (toke
 		}
 	}
 	r.closeBridge(name, CloseBadToken, "gateway re-paired")
+	// A re-pair can move the gateway to another computer, and someone
+	// else: its access tokens don't carry over.
+	if _, err := r.revokeHostTokens(name, "gateway re-paired"); err != nil {
+		logging.Errorw(r.ctx, "revoking host tokens on re-pair", "gateway", name, "error", err)
+	}
 	return token, true, nil
 }
 

@@ -1,10 +1,10 @@
 // Command devrelay runs the real relay on localhost for development: a fresh
 // (or reused) SQLite file, a bootstrap admin, and optionally a gateway and an
-// operator client, with their tokens printed. Point a bridge and `meshbridge
+// host token for it, with their tokens printed. Point a bridge and `meshbridge
 // connect` at it to test without the production relay or shared tokens.
 //
 //	devrelay                         # 127.0.0.1:8090, temp database
-//	devrelay -gateway cabin          # also create gateway "cabin" + an operator
+//	devrelay -gateway cabin          # also create gateway "cabin" + a host token for it
 //	devrelay -db ./dev/relay.db      # keep state between runs
 //
 // Not for production: the deployed relay is sierra-data's cmd/mesh-relay.
@@ -28,7 +28,7 @@ import (
 func main() {
 	listen := flag.String("listen", "127.0.0.1:8090", "address to serve on")
 	dbPath := flag.String("db", "", "SQLite file (default: a temp file, discarded on exit)")
-	gateway := flag.String("gateway", "", "create this gateway and an operator client, and print their tokens")
+	gateway := flag.String("gateway", "", "create this gateway and a host token for it, and print their tokens")
 	flag.Parse()
 
 	host, portStr, err := net.SplitHostPort(*listen)
@@ -77,7 +77,7 @@ func main() {
 		}
 		fmt.Printf("  gateway         %s\n", *gateway)
 		fmt.Printf("  bridge token    %s\n", bridgeTok)
-		fmt.Printf("  operator token  %s\n\n", clientTok)
+		fmt.Printf("  host token      %s  (opens %s only)\n\n", clientTok, *gateway)
 		fmt.Printf("Run a bridge:\n  MESHBRIDGE_TOKEN=%s meshbridge run -config <file with gateway = %q, relay = %q>\n", bridgeTok, *gateway, ws)
 		fmt.Printf("Use it:\n  MESHBRIDGE_CLIENT_TOKEN=%s meshbridge connect %s -relay %s\n\n", clientTok, *gateway, ws)
 	}
@@ -90,7 +90,7 @@ func main() {
 	}
 }
 
-// seed creates a gateway and an operator client directly in the store.
+// seed creates a gateway and a host token for it directly in the store.
 func seed(st *relay.Store, gateway string) (bridgeTok, clientTok string, err error) {
 	if !relay.ValidGatewayName(gateway) {
 		return "", "", fmt.Errorf("gateway name %q must match [a-z0-9-]{3,40}", gateway)
@@ -107,12 +107,16 @@ func seed(st *relay.Store, gateway string) (bridgeTok, clientTok string, err err
 	if err != nil {
 		return "", "", err
 	}
-	if clientTok, err = relay.MintToken(relay.ClientTokenPrefix); err != nil {
+	if clientTok, err = relay.MintToken(relay.HostTokenPrefix); err != nil {
 		return "", "", err
 	}
-	name := "dev-operator-" + fmt.Sprint(now.Unix())
-	return bridgeTok, clientTok, st.CreateClient(relay.ClientRecord{Name: name, Role: relay.RoleOperator, CreatedAt: now,
-		CreatedBy: "devrelay"}, relay.TokenHash(clientTok))
+	name, err := relay.HostClientName(gateway, fmt.Sprint("dev-", now.Unix()))
+	if err != nil {
+		return "", "", err
+	}
+	return bridgeTok, clientTok, st.CreateClient(relay.ClientRecord{Name: name, Role: relay.RoleHost, CreatedAt: now,
+		Gateway: gateway, ExpiresAt: now.Add(relay.HostTokenDefaultDays * 24 * time.Hour), CreatedBy: "devrelay"},
+		relay.TokenHash(clientTok))
 }
 
 func fatal(format string, a ...any) {

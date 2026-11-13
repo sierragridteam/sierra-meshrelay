@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dpup/prefab/logging"
 	"github.com/gorilla/websocket"
@@ -33,6 +34,11 @@ func (r *Relay) handleClient(w http.ResponseWriter, req *http.Request) {
 		r.authFailed(w, ip, "client", name)
 		return
 	}
+	if errors.Is(err, ErrTokenExpired) {
+		logging.Infow(r.ctx, "expired token", "kind", "client", "gateway", name)
+		http.Error(w, "this token has expired; ask for a new one", http.StatusUnauthorized)
+		return
+	}
 	if err != nil {
 		logging.Errorw(r.ctx, "client auth lookup", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -42,12 +48,18 @@ func (r *Relay) handleClient(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "unknown gateway", http.StatusNotFound)
 		return
 	}
-	if _, err := r.store.Gateway(name); errors.Is(err, ErrNotFound) {
+	rec, err := r.store.Gateway(name)
+	if errors.Is(err, ErrNotFound) {
 		http.Error(w, "unknown gateway", http.StatusNotFound)
 		return
 	} else if err != nil {
 		logging.Errorw(r.ctx, "gateway lookup", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if why := mayLease(who, rec); why != "" {
+		logging.Infow(r.ctx, "lease refused: not allowed", "gateway", name, "client", who.Name, "role", who.Role)
+		http.Error(w, why, http.StatusForbidden)
 		return
 	}
 	if !hasSubprotocol(req, ClientSubprotocol) {
@@ -129,20 +141,88 @@ func (r *Relay) serveClient(c *conn, gateway string, who *ClientRecord, preempt 
 	}
 }
 
+// ErrTokenExpired means a client token is genuine but past its expiry. It
+// doesn't count toward the IP lockout.
+var ErrTokenExpired = errors.New("token expired")
+
+// touchEvery bounds how often a client's last use is written.
+const touchEvery = time.Hour
+
 // authClient resolves a client bearer token: config-defined bootstrap admins
-// first, then the clients table.
+// first, then the clients table. A host token must start with
+// HostTokenPrefix and any other with ClientTokenPrefix, so a host token
+// can't pass as another kind (or be accepted by a relay from before them).
 func (r *Relay) authClient(req *http.Request) (*ClientRecord, error) {
 	tok := bearerToken(req.Header.Get("Authorization"))
-	if !strings.HasPrefix(tok, ClientTokenPrefix) {
+	host := strings.HasPrefix(tok, HostTokenPrefix)
+	if !host && !strings.HasPrefix(tok, ClientTokenPrefix) {
 		return nil, ErrNotFound
 	}
 	hash := TokenHash(tok)
-	for _, name := range sortedNames(r.cfg.BootstrapAdmins) {
-		if subtle.ConstantTimeCompare([]byte(hash), []byte(r.cfg.BootstrapAdmins[name])) == 1 {
-			return &ClientRecord{Name: name, Role: RoleAdmin, Bootstrap: true}, nil
+	if !host {
+		for _, name := range sortedNames(r.cfg.BootstrapAdmins) {
+			if subtle.ConstantTimeCompare([]byte(hash), []byte(r.cfg.BootstrapAdmins[name])) == 1 {
+				return &ClientRecord{Name: name, Role: RoleAdmin, Bootstrap: true}, nil
+			}
 		}
 	}
-	return r.store.ClientByToken(hash)
+	c, err := r.store.ClientByToken(hash)
+	if err != nil {
+		return nil, err
+	}
+	if host != (c.Role == RoleHost) {
+		return nil, ErrNotFound
+	}
+	now := r.now()
+	if !c.ExpiresAt.IsZero() && !now.Before(c.ExpiresAt) {
+		return nil, ErrTokenExpired
+	}
+	r.touch(c.Name, now)
+	return c, nil
+}
+
+// touch records a client's use, at most once per touchEvery, off the
+// request path.
+func (r *Relay) touch(name string, now time.Time) {
+	r.touchMu.Lock()
+	if r.touched == nil {
+		r.touched = map[string]time.Time{}
+	}
+	last, ok := r.touched[name]
+	if ok && now.Sub(last) < touchEvery {
+		r.touchMu.Unlock()
+		return
+	}
+	r.touched[name] = now
+	r.touchMu.Unlock()
+	r.audit("client last use", func(s Storage) error {
+		if err := s.TouchClient(name, now); !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return nil
+	})
+}
+
+// mayLease reports why who may not take a lease on gateway (rec), or "" if
+// it may. Admins may use any gateway; a host only its own, and only a token
+// issued after the gateway was created (a deleted gateway's name can come
+// back for someone else).
+func mayLease(who *ClientRecord, rec *GatewayRecord) string {
+	switch who.Role {
+	case RoleAdmin:
+		return ""
+	case RoleHost:
+		if who.Gateway != rec.Name || who.CreatedAt.Before(rec.CreatedAt) {
+			return "this token is for gateway " + who.Gateway + ", not " + rec.Name
+		}
+		return ""
+	}
+	return retiredRole(who.Role)
+}
+
+// retiredRole is the refusal for a token with a role no longer issued.
+func retiredRole(role Role) string {
+	return "tokens with the " + string(role) + " role no longer work; ask a SIERRA admin for a new one"
 }
 
 func (r *Relay) authFailed(w http.ResponseWriter, ip, kind, gateway string) {

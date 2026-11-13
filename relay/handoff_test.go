@@ -21,7 +21,7 @@ func TestHandoffReleaseClosesSessionsAndFlushesAudit(t *testing.T) {
 	gate := &closableGate{}
 	h := newHarnessAt(t, Config{Gate: gate}, db)
 	tok := h.createGateway("gw-a")
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	b := h.bridge("gw-a", tok, pubkeyA)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")

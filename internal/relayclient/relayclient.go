@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -32,7 +33,9 @@ func (e *RefusedError) Error() string {
 // forbidden, 404 unknown gateway, 429 locked out, ...).
 type HTTPError struct {
 	Status int
-	Err    error
+	// Body is the start of the relay's answer: why, in a sentence.
+	Body string
+	Err  error
 }
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("relay answered HTTP %d: %v", e.Status, e.Err) }
@@ -64,12 +67,17 @@ func Dial(ctx context.Context, base, gateway, token string, preempt bool) (*Conn
 		HTTPHeader:   http.Header{"Authorization": {"Bearer " + token}},
 		Subprotocols: []string{meshproto.ClientSubprotocol},
 	})
+	var body string
 	if resp != nil && resp.Body != nil {
+		if err != nil {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			body = strings.TrimSpace(string(b))
+		}
 		resp.Body.Close()
 	}
 	if err != nil {
 		if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
-			return nil, &HTTPError{Status: resp.StatusCode, Err: err}
+			return nil, &HTTPError{Status: resp.StatusCode, Body: body, Err: err}
 		}
 		return nil, fmt.Errorf("dial: %w", err)
 	}

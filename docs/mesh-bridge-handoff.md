@@ -248,7 +248,7 @@ The passphrase is redeemed once and never stored. Only the resulting token is sa
 ## Client mode: `meshbridge connect`
 
 ```
-meshbridge connect avery-ridge --token smc_… [--listen 127.0.0.1:5000]
+meshbridge connect avery-ridge --token smh_… [--listen 127.0.0.1:5000]
 ```
 
 - Listens on localhost only, unless `--listen` explicitly says otherwise (warn loudly).

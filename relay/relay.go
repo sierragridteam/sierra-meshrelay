@@ -122,6 +122,11 @@ type Relay struct {
 	// accept-pubkey), which read and write the store outside mu.
 	pubkeyMu sync.Mutex
 
+	// touchMu guards touched: when each client's last use was last recorded
+	// (TouchClient is written at most once per touchEvery).
+	touchMu sync.Mutex
+	touched map[string]time.Time
+
 	auditCh     chan func(Storage) error
 	auditWG     sync.WaitGroup
 	auditMu     sync.RWMutex // guards auditClosed against a send on the closed channel
