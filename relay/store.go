@@ -62,7 +62,12 @@ CREATE TABLE IF NOT EXISTS clients (
 	name         TEXT PRIMARY KEY,
 	role         TEXT NOT NULL,
 	token_sha256 TEXT NOT NULL UNIQUE,
-	created_at   INTEGER NOT NULL
+	created_at   INTEGER NOT NULL,
+	gateway      TEXT NOT NULL DEFAULT '',
+	expires_at   INTEGER NOT NULL DEFAULT 0,
+	last_used_at INTEGER NOT NULL DEFAULT 0,
+	created_by   TEXT NOT NULL DEFAULT '',
+	note         TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS leases (
 	id               TEXT PRIMARY KEY,
@@ -124,7 +129,70 @@ func OpenStore(ctx context.Context, path string, lockTimeout time.Duration) (*St
 		lock.Close()
 		return nil, fmt.Errorf("relay store: migrate: %w", err)
 	}
+	for _, m := range addedColumns {
+		if err := addColumns(ctx, db, m.table, m.cols); err != nil {
+			db.Close()
+			lock.Close()
+			return nil, fmt.Errorf("relay store: migrate %s: %w", m.table, err)
+		}
+	}
 	return &Store{db: db, lock: lock}, nil
+}
+
+// column is a column added to a table after it was first created.
+type column struct{ name, def string }
+
+// addedColumns are the columns added to existing tables since the first
+// release, oldest first. CREATE TABLE IF NOT EXISTS leaves an existing
+// table as it was, so OpenStore adds whichever are missing. Each needs a
+// DEFAULT, and the CREATE TABLE above lists it too, for new files. An older
+// relay ignores them: every INSERT names its columns.
+var addedColumns = []struct {
+	table string
+	cols  []column
+}{
+	{"clients", []column{
+		{"gateway", "TEXT NOT NULL DEFAULT ''"},
+		{"expires_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"last_used_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"created_by", "TEXT NOT NULL DEFAULT ''"},
+		{"note", "TEXT NOT NULL DEFAULT ''"},
+	}},
+}
+
+// addColumns adds the columns table lacks.
+func addColumns(ctx context.Context, db *sql.DB, table string, cols []column) error {
+	have, err := tableColumns(ctx, db, table)
+	if err != nil {
+		return err
+	}
+	for _, c := range cols {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+c.name+` `+c.def); err != nil {
+			return fmt.Errorf("adding %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+// tableColumns returns the names of table's columns.
+func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		have[n] = true
+	}
+	return have, rows.Err()
 }
 
 // Close closes the database and releases the lock.
@@ -283,9 +351,18 @@ func (s *Store) SetPubkeys(name, pinned, mismatch string) error {
 	return s.execOne(`UPDATE gateways SET pinned_pubkey = ?, mismatch_pubkey = ? WHERE name = ?`, pinned, mismatch, name)
 }
 
-// DeleteGateway removes a gateway and its event history. Lease audit rows are
-// kept: they record who used the node, which outlives the gateway.
+// DeleteGateway removes a gateway, its event history and the client tokens
+// scoped to it: a gateway's name can be used again, and its old tokens must
+// not open the new one. Lease audit rows are kept: they record who used the
+// node, which outlives the gateway.
 func (s *Store) DeleteGateway(name string) error {
+	if _, err := s.Gateway(name); err != nil {
+		return err
+	}
+	// Tokens first: if a later step fails, no token outlives its gateway.
+	if _, err := s.db.Exec(`DELETE FROM clients WHERE gateway = ? AND gateway != ''`, name); err != nil {
+		return err
+	}
 	if err := s.execOne(`DELETE FROM gateways WHERE name = ?`, name); err != nil {
 		return err
 	}
@@ -361,15 +438,41 @@ type ClientRecord struct {
 	Name      string    `json:"name"`
 	Role      Role      `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+	// Gateway scopes the token to one gateway; "" is unscoped.
+	Gateway string `json:"gateway,omitempty"`
+	// ExpiresAt is when the token stops working; zero never.
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+	// LastUsedAt is roughly when the token was last used (TouchClient).
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	// CreatedBy is the admin who issued it, or "gateway:<name>" for a
+	// token a host issued from their bridge.
+	CreatedBy string `json:"created_by,omitempty"`
+	Note      string `json:"note,omitempty"`
 	// Bootstrap marks a config-defined admin, which lives outside the table
 	// and cannot be revoked through the API.
 	Bootstrap bool `json:"bootstrap,omitempty"`
 }
 
-// CreateClient inserts a client token hash.
-func (s *Store) CreateClient(name string, role Role, hash string, now time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO clients (name, role, token_sha256, created_at) VALUES (?, ?, ?, ?)`,
-		name, string(role), hash, ms(now))
+const clientColumns = `name, role, created_at, gateway, expires_at, last_used_at, created_by, note`
+
+func scanClient(sc interface{ Scan(...any) error }, extra ...any) (ClientRecord, error) {
+	var c ClientRecord
+	var role string
+	var created, expires, used int64
+	dst := append([]any{&c.Name, &role, &created, &c.Gateway, &expires, &used, &c.CreatedBy, &c.Note}, extra...)
+	if err := sc.Scan(dst...); err != nil {
+		return c, err
+	}
+	c.Role, c.CreatedAt, c.ExpiresAt, c.LastUsedAt = Role(role), fromMS(created), fromMS(expires), fromMS(used)
+	return c, nil
+}
+
+// CreateClient inserts a client token hash. c.Name, Role and CreatedAt are
+// required; the rest are optional.
+func (s *Store) CreateClient(c ClientRecord, hash string) error {
+	_, err := s.db.Exec(`INSERT INTO clients (name, role, token_sha256, created_at, gateway, expires_at, created_by, note)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, string(c.Role), hash, ms(c.CreatedAt), c.Gateway, ms(c.ExpiresAt), c.CreatedBy, c.Note)
 	if isUniqueViolation(err) {
 		return ErrExists
 	}
@@ -378,40 +481,42 @@ func (s *Store) CreateClient(name string, role Role, hash string, now time.Time)
 
 // ClientByToken resolves a client token hash.
 func (s *Store) ClientByToken(hash string) (*ClientRecord, error) {
-	var c ClientRecord
-	var role string
-	var created int64
-	err := s.db.QueryRow(`SELECT name, role, created_at FROM clients WHERE token_sha256 = ?`, hash).
-		Scan(&c.Name, &role, &created)
+	c, err := scanClient(s.db.QueryRow(`SELECT `+clientColumns+` FROM clients WHERE token_sha256 = ?`, hash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	c.Role, c.CreatedAt = Role(role), fromMS(created)
 	return &c, nil
 }
 
 // Clients lists client tokens (never their hashes).
 func (s *Store) Clients() ([]ClientRecord, error) {
-	rows, err := s.db.Query(`SELECT name, role, created_at FROM clients ORDER BY name`)
+	rows, err := s.db.Query(`SELECT ` + clientColumns + ` FROM clients ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []ClientRecord{}
 	for rows.Next() {
-		var c ClientRecord
-		var role string
-		var created int64
-		if err := rows.Scan(&c.Name, &role, &created); err != nil {
+		c, err := scanClient(rows)
+		if err != nil {
 			return nil, err
 		}
-		c.Role, c.CreatedAt = Role(role), fromMS(created)
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// UpdateClient changes a client's role and the gateway it's scoped to.
+func (s *Store) UpdateClient(name string, role Role, gateway string) error {
+	return s.execOne(`UPDATE clients SET role = ?, gateway = ? WHERE name = ?`, string(role), gateway, name)
+}
+
+// TouchClient records that a client's token was used at at.
+func (s *Store) TouchClient(name string, at time.Time) error {
+	return s.execOne(`UPDATE clients SET last_used_at = ? WHERE name = ?`, ms(at), name)
 }
 
 // DeleteClient revokes a client token.

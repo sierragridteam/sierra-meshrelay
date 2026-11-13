@@ -28,8 +28,9 @@ type Storage interface {
 	Gateways() ([]*GatewayRecord, error) // by name
 	SetGatewayToken(name, hash string) error
 	SetPubkeys(name, pinned, mismatch string) error
-	// DeleteGateway removes a gateway, its events and its bridge logs; its
-	// lease audit rows stay.
+	// DeleteGateway removes a gateway, its events, its bridge logs and the
+	// client tokens scoped to it (ClientRecord.Gateway); its lease audit
+	// rows stay.
 	DeleteGateway(name string) error
 	RecordHello(name string, h *meshproto.Hello, at time.Time) error
 	RecordSeen(name string, at time.Time) error
@@ -40,9 +41,11 @@ type Storage interface {
 	GatewayEvents(name string, limit int) ([]GatewayEvent, error) // newest first
 
 	// Client tokens.
-	CreateClient(name string, role Role, hash string, now time.Time) error
+	CreateClient(c ClientRecord, hash string) error // c.Name, Role, CreatedAt required
 	ClientByToken(hash string) (*ClientRecord, error)
 	Clients() ([]ClientRecord, error) // by name, never the hashes
+	UpdateClient(name string, role Role, gateway string) error
+	TouchClient(name string, at time.Time) error // records the last use
 	DeleteClient(name string) error
 
 	// The lease audit log. EndLease gets the whole record (ID, StartedAt and

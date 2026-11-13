@@ -77,14 +77,22 @@ func ReadSnapshot(ctx context.Context, path string, o SnapshotOptions) (*Snapsho
 	if snap.Gateways, err = ro.Gateways(); err != nil {
 		return nil, fmt.Errorf("gateways: %w", err)
 	}
-	if err := eachRow(ctx, db, `SELECT name, role, token_sha256, created_at FROM clients ORDER BY name`, func(rows *sql.Rows) error {
+	// A file from before the clients table gained columns has none of them
+	// (ReadSnapshot never migrates): read them as their defaults.
+	cols, err := tableColumns(ctx, db, "clients")
+	if err != nil {
+		return nil, fmt.Errorf("clients: %w", err)
+	}
+	q := `SELECT ` + clientColumns + `, token_sha256 FROM clients ORDER BY name`
+	if !cols["gateway"] {
+		q = `SELECT name, role, created_at, '', 0, 0, '', '', token_sha256 FROM clients ORDER BY name`
+	}
+	if err := eachRow(ctx, db, q, func(rows *sql.Rows) error {
 		var c SnapshotClient
-		var role string
-		var created int64
-		if err := rows.Scan(&c.Name, &role, &c.TokenHash, &created); err != nil {
+		var err error
+		if c.ClientRecord, err = scanClient(rows, &c.TokenHash); err != nil {
 			return err
 		}
-		c.Role, c.CreatedAt = Role(role), fromMS(created)
 		snap.Clients = append(snap.Clients, c)
 		return nil
 	}); err != nil {

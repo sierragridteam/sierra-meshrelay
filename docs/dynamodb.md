@@ -30,7 +30,7 @@ point-in-time recovery or deletion protection.
 | `pk` | `sk` | Holds |
 |---|---|---|
 | `GW` | gateway name | the gateway row (token hash, pins, notes, last hello/stats/seen) |
-| `CL` | client name | the client row (role, token hash, created) |
+| `CL` | client name | the client row (role, token hash, created; for a scoped token also `gateway`, `expiresAt`, `lastUsedAt`, `createdBy`, `note`). Deleting a gateway deletes the clients scoped to it, with their `TOK` pointers. |
 | `TOK` | `B#<hash>` / `C#<hash>` | token pointer to a gateway or client name |
 | `EV#<gateway>` | ID, 20 digits | gateway event |
 | `LOG#<gateway>` | ID, 20 digits | bridge log line |

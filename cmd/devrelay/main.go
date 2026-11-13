@@ -111,7 +111,8 @@ func seed(st *relay.Store, gateway string) (bridgeTok, clientTok string, err err
 		return "", "", err
 	}
 	name := "dev-operator-" + fmt.Sprint(now.Unix())
-	return bridgeTok, clientTok, st.CreateClient(name, relay.RoleOperator, relay.TokenHash(clientTok), now)
+	return bridgeTok, clientTok, st.CreateClient(relay.ClientRecord{Name: name, Role: relay.RoleOperator, CreatedAt: now,
+		CreatedBy: "devrelay"}, relay.TokenHash(clientTok))
 }
 
 func fatal(format string, a ...any) {

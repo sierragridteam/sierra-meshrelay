@@ -580,7 +580,8 @@ func (r *Relay) apiCreateClient(req *http.Request, who *ClientRecord) (any, erro
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
-	if err := r.store.CreateClient(body.Name, role, TokenHash(tok), r.now()); err != nil {
+	if err := r.store.CreateClient(ClientRecord{Name: body.Name, Role: role, CreatedAt: r.now(), CreatedBy: who.Name},
+		TokenHash(tok)); err != nil {
 		return nil, storeErr(err, "")
 	}
 	logging.Infow(r.ctx, "client token issued", "client", body.Name, "role", role, "by", who.Name)
