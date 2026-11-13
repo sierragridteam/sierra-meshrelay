@@ -541,6 +541,9 @@ func (r *Relay) Acquire(req LeaseRequest) (*Lease, error) {
 		}
 		return nil, &UnavailableError{Status: r.gatewayStatusLocked(g), Code: code}
 	}
+	if !req.NotAfter.IsZero() && !req.NotAfter.After(now) {
+		return nil, ErrTokenExpired // expired since it was checked
+	}
 	if cur := g.lease; cur != nil {
 		if !req.Preempt && req.Priority <= cur.Priority {
 			return nil, ErrBusy

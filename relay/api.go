@@ -301,7 +301,8 @@ type PublicGateway struct {
 	// Ready: a lease could be granted on this gateway's node.
 	Ready bool `json:"ready"`
 	// InUse: someone holds the lease. Never who: InUseRole says only what
-	// kind of client (admin | operator | agent), so someone waiting can tell an
+	// kind of client (operator: a person, admin or host; agent: automated; see
+	// publicRole), so someone waiting can tell an
 	// automated session from a person's. A client's name would publish when a
 	// person is on which gateway, and polling would make a history of it.
 	InUse          bool       `json:"in_use"`

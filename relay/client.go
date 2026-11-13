@@ -101,6 +101,9 @@ func (r *Relay) serveClient(c *conn, gateway string, who *ClientRecord, tokenHas
 		c.close(CloseNormal, "gateway unavailable")
 		logging.Infow(ctx, "lease refused: unavailable", "code", unavailable.Code)
 		return
+	case errors.Is(err, ErrTokenExpired):
+		c.close(CloseNormal, "token expired")
+		return
 	case err != nil:
 		c.close(1011, "internal error")
 		return
@@ -108,9 +111,12 @@ func (r *Relay) serveClient(c *conn, gateway string, who *ClientRecord, tokenHas
 	defer r.Release(l)
 	// The token may have been revoked between authClient and Acquire, when
 	// revoking found no lease to end: look again now that there is one.
+	// (Another lookup error keeps the lease: the token was valid a moment ago.)
 	if !who.Bootstrap {
 		if _, err := r.store.ClientByToken(tokenHash); errors.Is(err, ErrNotFound) {
-			r.EndLeasesFor(who.Name, ReasonRevoked)
+			r.mu.Lock()
+			r.endLeaseLocked(l, ReasonRevoked, true)
+			r.mu.Unlock()
 			logging.Infow(ctx, "lease ended: token revoked while it was granted")
 			return
 		}
