@@ -36,6 +36,17 @@ Usage:
   meshbridge admin reconnect <gateway> [-yes]    Have a bridge look for its node now (ends any session using it)
   meshbridge admin accept-node <gateway> [-yes]  Accept the node a gateway's bridge reports when it isn't the one
                                                  on record (a host can switch nodes themselves: meshbridge change-node)
+  meshbridge admin access grant <gateway> <label> [-expires 180d] [-note text]
+                                                 Issue a token that opens one gateway (meshbridge connect),
+                                                 named <gateway>.<label>; prints it once, with instructions
+  meshbridge admin access list [gateway]         Access tokens, for every gateway or one
+  meshbridge admin access remove <gateway>.<label> [-yes]
+                                                 Revoke an access token (ends any session using it)
+  meshbridge admin clients                       Every token: admin and access, expiry, last use
+  meshbridge admin client add <name> [-expires 90d] [-note text]
+                                                 Issue an admin token (for another admin or a tool)
+  meshbridge admin client set <name> -role admin Turn a token with a retired role (operator, agent) into an admin token
+  meshbridge admin client remove <name> [-yes]   Revoke a token
   meshbridge admin update-bridges [vX.Y.Z|off] [-gateway a,b]
                                                  Show the release offered to bridges; with a version, offer it
                                                  (bridges install it when idle; never a downgrade)
@@ -71,8 +82,10 @@ func cmdAdmin(args []string) (err error) {
 	prefix := fs.String("prefix", "", "invite: name gateways <prefix>-1, -2… (multi-use)")
 	days := fs.Float64("days", 7, "invite: days until it expires (max 30)")
 	node := fs.String("node", "", "invite: only redeemable by the node with this pubkey")
-	note := fs.String("note", "", "invite: a note for admins")
-	yes := fs.Bool("yes", false, "remove, reconnect, accept-node, repeater add: don't ask for confirmation")
+	note := fs.String("note", "", "invite, access grant, client add: a note for admins")
+	yes := fs.Bool("yes", false, "remove, reconnect, accept-node, repeater add, access/client remove: don't ask for confirmation")
+	expires := fs.String("expires", "", "access grant, client add: days until the token expires, like 90d (default: 180d for access, never for admin)")
+	role := fs.String("role", "", "client set: the new role (admin)")
 	lines := fs.Int("n", 50, "logs: how many lines")
 	follow := fs.Bool("f", false, "logs: keep printing new lines")
 	only := fs.String("gateway", "", "update-bridges: only these gateways (comma-separated)")
@@ -97,6 +110,10 @@ func cmdAdmin(args []string) (err error) {
 	}
 
 	switch sub {
+	case "access", "clients", "client":
+		return runAdminClients(ctx, c, sub, pos, adminTokenOpts{expires: *expires, note: *note, yes: *yes, role: *role},
+			bufio.NewReader(os.Stdin), isTerminal(os.Stdin), os.Stdout)
+
 	case "pairings":
 		ps, err := c.Pairings(ctx)
 		if err != nil {
@@ -529,7 +546,7 @@ func findGateway(ctx context.Context, c *admin.Client, name string) (admin.Gatew
 // adminCommands are the admin subcommands, checked before the token is
 // loaded so a typo isn't reported as a missing token.
 var adminCommands = []string{"pairings", "approve", "deny", "invite", "invites", "revoke", "remove", "rm",
-	"gateways", "update-bridges", "logs", "reconnect", "accept-node", "repeaters", "repeater"}
+	"gateways", "update-bridges", "logs", "reconnect", "accept-node", "repeaters", "repeater", "access", "clients", "client"}
 
 // isPubkey reports whether s is a full 64-hex-character pubkey.
 func isPubkey(s string) bool {
