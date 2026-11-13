@@ -486,6 +486,12 @@ func (r *Relay) issueGateway(name, pinned, notes string, allowRepair bool) (toke
 	if !allowRepair {
 		return "", false, err
 	}
+	// A re-pair can move the gateway to another computer, and someone
+	// else: its access tokens don't carry over. First, so a failure leaves
+	// the gateway as it was rather than re-paired with the old tokens live.
+	if _, err := r.revokeHostTokens(name, "gateway re-paired"); err != nil {
+		return "", false, fmt.Errorf("revoking the gateway's access tokens: %w", err)
+	}
 	if err := r.store.SetGatewayToken(name, TokenHash(token)); err != nil {
 		return "", false, err
 	}

@@ -8,9 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/coder/websocket"
 
@@ -32,11 +34,33 @@ func (e *RefusedError) Error() string {
 // forbidden, 404 unknown gateway, 429 locked out, ...).
 type HTTPError struct {
 	Status int
-	Err    error
+	// Body is the start of the relay's answer: why, in a sentence.
+	Body string
+	Err  error
 }
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("relay answered HTTP %d: %v", e.Status, e.Err) }
 func (e *HTTPError) Unwrap() error { return e.Err }
+
+// reason makes a refused upgrade's body safe to show: its first line, only
+// printable characters, at most 200 of them, and nothing from an HTML page
+// (a proxy's error page, not the relay's answer).
+func reason(body string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(body), "\n")
+	if strings.HasPrefix(line, "<") {
+		return ""
+	}
+	line = strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, line)
+	if r := []rune(line); len(r) > 200 {
+		line = string(r[:200]) + "…"
+	}
+	return strings.TrimSpace(line)
+}
 
 // Conn is a client session holding a lease.
 type Conn struct {
@@ -64,12 +88,17 @@ func Dial(ctx context.Context, base, gateway, token string, preempt bool) (*Conn
 		HTTPHeader:   http.Header{"Authorization": {"Bearer " + token}},
 		Subprotocols: []string{meshproto.ClientSubprotocol},
 	})
+	var body string
 	if resp != nil && resp.Body != nil {
+		if err != nil {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			body = reason(string(b))
+		}
 		resp.Body.Close()
 	}
 	if err != nil {
 		if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
-			return nil, &HTTPError{Status: resp.StatusCode, Err: err}
+			return nil, &HTTPError{Status: resp.StatusCode, Body: body, Err: err}
 		}
 		return nil, fmt.Errorf("dial: %w", err)
 	}

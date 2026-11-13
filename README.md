@@ -60,7 +60,7 @@ flowchart LR
 
     subgraph laptop["Client machine"]
         app["meshcore-cli or<br/>another companion app"]
-        connect["meshbridge connect<br/>smc_ client token<br/>127.0.0.1:5000"]
+        connect["meshbridge connect<br/>smh_ access token<br/>127.0.0.1:5000"]
         app -- "TCP" --> connect
     end
 
@@ -75,7 +75,7 @@ flowchart LR
   - gives one client at a time a lease on a gateway;
   - forwards that client's frames to the node and back.
 - **Clients** hold a lease while they use a node:
-  - **`meshbridge connect <gateway>`** runs on your machine. It makes the remote node look like a local radio on `127.0.0.1:5000` for meshcore-cli and other TCP companion apps. It uses a client token (`smc_…`).
+  - **`meshbridge connect <gateway>`** runs on your machine. It makes the remote node look like a local radio on `127.0.0.1:5000` for meshcore-cli and other TCP companion apps. It uses an access token: a host token for that one gateway (`smh_…`), or an admin's (`smc_…`).
   - **SIERRA's services**, such as the Grid's telemetry poller, run in-process with the relay and use the same leases.
 
 A gateway is the relay's record for one bridge and its node: a name, a token, a pinned pubkey.
@@ -252,9 +252,11 @@ SIERRA logs in to a shared repeater over the mesh to read its status (battery, a
 ### Using a remote gateway (client mode)
 
 ```sh
-MESHBRIDGE_CLIENT_TOKEN=smc_… meshbridge connect mission-gateway
+MESHBRIDGE_CLIENT_TOKEN=smh_… meshbridge connect mission-gateway
 meshcore-cli -t 127.0.0.1 -p 5000 infos
 ```
+
+The token is a host token for that gateway (`smh_…`, from a SIERRA admin; it opens that gateway only) or an admin token (`smc_…`).
 
 How `connect` behaves:
 - It listens on `127.0.0.1:5000` and takes a lease only while an app is connected.
@@ -295,7 +297,7 @@ Setup writes the config, readable only by you: the token, the relay URL, and the
 
 ### A local relay
 
-`go run ./cmd/devrelay -gateway cabin` runs the real relay on `127.0.0.1:8090` with a throwaway database. It prints an admin token, the gateway's bridge token, an operator token and commands to paste. Use it to try a bridge, `connect`, pairing or pause without the production relay.
+`go run ./cmd/devrelay -gateway cabin` runs the real relay on `127.0.0.1:8090` with a throwaway database. It prints an admin token, the gateway's bridge token, a host token for it and commands to paste. Use it to try a bridge, `connect`, pairing or pause without the production relay.
 
 To pair against it:
 1. Run `meshbridge setup -relay ws://127.0.0.1:8090/mesh/relay`.

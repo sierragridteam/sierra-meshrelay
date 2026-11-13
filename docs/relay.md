@@ -40,17 +40,23 @@ The relay is the meeting point. Bridges attach to it, and authenticated clients 
 
 ### Roles
 
-Keep this simple. A static config file or a small table is fine for v1.
+A client token carries one of two roles:
 
-| Role | Can |
-|---|---|
-| `admin` | Everything, including creating gateways, issuing and revoking tokens, accepting pubkey changes, preempting leases |
-| `operator` | Take leases on any gateway, view status |
-| `agent` | Take leases (for Elmer, meshcore-mcp, future pollers), view status |
+| Role | Token | Can |
+|---|---|---|
+| `admin` | `smc_…` | Everything: the API (creating gateways, issuing and revoking tokens, accepting pubkey changes, status), leases on any gateway, preempting leases |
+| `host` | `smh_…` | A lease on **one** gateway (`meshbridge connect`), nothing else: no API, no preempting |
+
+- **Host tokens** are named `<gateway>.<label>` (the relay builds the name), expire (180 days by default, at most 730), and a gateway has at most 5 at once. Each is recorded as an `access_issued` event on its gateway. A host token opens its gateway only if it was issued after the gateway was created, so a reused gateway name never inherits old tokens.
+- **Revoked automatically** when the gateway's bridge token is rotated (it may have leaked), when the gateway is re-paired (it may now be someone else's), and when the gateway is deleted. Each records an `access_revoked` event; active leases end.
+- **The prefix matches the role.** An `smh_` token is always a host token, and an `smc_` token never is. A relay from before host tokens (v0.14.0 and earlier) accepts only `smc_`, so rolling back fails closed instead of letting host tokens open every gateway.
+- **Retired roles.** `operator` and `agent` tokens, issued before v0.15.0, are refused everywhere (403, "tokens with the operator role no longer work"). `PATCH /clients/<name> {"role": "admin"}` turns one into an admin token. In-process lease holders (the relay's repeater checks, sierra-data's pollers) still lease with these roles; they pass no token.
+- **Expiry and last use.** An expired token gets 401 "this token has expired", which doesn't count toward the IP lockout. A lease ends when its token expires, however it's renewed. Issuing a host token clears its gateway's expired ones. The relay records each token's last use, at most hourly.
+- **Revocation fails closed.** Rotation and re-pair revoke the access tokens first; if that fails, the bridge token isn't rotated (or the gateway re-paired) and the admin retries. A token revoked while its lease was being granted loses the lease at once.
 
 ### Admin API
 
-JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` token (`admin` for anything that changes state).
+JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` token. A host token is refused (403).
 
 | Method & path | Does |
 |---|---|
@@ -63,7 +69,10 @@ JSON over HTTPS under `/mesh/relay/api/`. Requires an `admin` or `operator` toke
 | `POST /gateways/<name>/relink` | Send `relink` to the bridge |
 | `GET /gateways/<name>/repeaters/nearby` | The repeaters in that gateway's node's contacts, as the bridge route `GET gateway/repeaters/nearby` returns them. For an admin sharing a repeater through any host's gateway. Takes a short lease on the node (client `repeater-list`); recorded as a `repeaters_listed` event on the gateway. |
 | `DELETE /gateways/<name>` | Revoke and remove |
-| `POST /clients` `{name, role}` / `DELETE /clients/<name>` | Issue and revoke client tokens |
+| `POST /clients` `{name, role: "admin", expires_in_days?, note?}` | Issue an admin token (a name without dots: `<gateway>.<label>` names host tokens). Returns the token **once**. |
+| `POST /clients` `{role: "host", gateway, label, expires_in_days?, note?}` | Issue a host token for `gateway`, named `<gateway>.<label>`. Returns `{client, role, gateway, expires_at, token}`, the token **once**. 404 for an unknown gateway, 409 at the cap. |
+| `PATCH /clients/<name>` `{role: "admin"}` | Turn an `operator` or `agent` token into an admin token. The only role change allowed. |
+| `GET /clients` / `DELETE /clients/<name>` | List tokens (role, gateway, expiry, last use, issuer, note; never the hashes); revoke one, ending its leases |
 | `GET /leases` | Current and recent leases (audit) |
 | `GET /pairings` | Device codes waiting for approval: code, host label, source IP, the node the bridge reported |
 | `POST /pairings/<code>/approve` `{gateway?, expected_pubkey?, notes?, repair?}` | Approve a code. Without `gateway`, the gateway is named after the reported node, or else the computer (`SIERRA Elmer` becomes `sierra-elmer`, then `-2`, `-3`… if taken). `GET /pairings` shows that name as `suggested_gateway`. Creates the gateway, or with `repair: true` re-pairs an existing one (rotating its token and closing its session with 4001). The pin is `expected_pubkey` or else the node the bridge reported. The code is case- and hyphen-insensitive. |
@@ -138,7 +147,7 @@ The relay will run its own internal client that takes short leases to poll repea
 1. A bridge with a valid token connects, sends `hello`, and gets `welcome`. The gateway shows online in `GET /gateways` within 2 s.
 2. Bad token → 401. A valid token for a different gateway → 401, or 4002 after upgrade.
 3. A second bridge with the same token takes over, and the first gets 4009.
-4. A client with an `operator` token gets a lease and exchanges binary frames end to end with a fake node behind a test bridge. A second client gets 4029.
+4. A client with an admin token gets a lease and exchanges binary frames end to end with a fake node behind a test bridge. A second client gets 4029.
 5. Lease idle timeout and admin preemption both send `lease_ending` and close cleanly.
 6. A pubkey change marks the gateway `mismatch` and blocks leases until `accept-pubkey`, unless the host announced it first (`POST gateway/node`).
 7. Kill the relay process: the data server's other endpoints are unaffected. After restart, the bridge is back online within its backoff window.
@@ -172,14 +181,14 @@ Phase 1 is built: `cmd/mesh-relay` (binary) and `internal/meshrelay` (package). 
 - **Admin bootstrap.** Bootstrap admins are listed in `meshRelay.admins` in `prefab.yaml` as a name plus the token's SHA-256. They exist so there's an admin before the clients table has any rows, and the API can't revoke them. Mint one with `make relay-token NAME=<you>`. It works the same way as push-ingest reporters: the token is printed once, only its hash is committed, and a malformed entry stops the relay at startup.
 - **Configuration.** The rest of the config lives in `prefab.yaml` under `meshRelay:` too: port, db path, client IP header, lease, ping, rate and lockout timings, and the payload-debug list. Override any key with `PF__MESH_RELAY__*`. A misspelled override stops the relay at startup with a "did you mean" message.
 - **API status codes.** The admin API is served through prefab JSON handlers, so a successful call returns 200, including creates and deletes. Errors use the `/api/v1` envelope `{code, codeName, message}` and map to 401, 403, 404, 409 or 429.
-- **Roles on `GET`.** All three roles can read status (`GET /gateways`, `/gateways/<name>`, `/leases`, `/metrics`), following the roles table. Every change of state, and `GET /clients`, needs `admin`.
+- **Roles on the API.** Every route needs `admin`, reads included (`GET /gateways`, `/gateways/<name>`, `/leases`, `/metrics`). Host tokens only take leases.
 - **Leases need a verified node.** A lease is granted only when the node is `connected` and reports the pinned key. The first key is pinned when the relay first sees it, or at create time with `expected_pubkey`. A mismatch reported mid-lease ends the lease. If the node goes back to the pinned key, the mismatch clears on its own.
 - **A bridge drop ends the lease** (`gateway_offline`). When a session is replaced (4009), the lease moves to the new session instead.
 - **Preemption.** An admin connects with `?preempt=1`. The lease manager also has a `Priority` field, so the phase 3 poller (`PriorityBackground`) gives way to any human or agent session.
 - **The rate limit throttles.** See the wire spec. Disconnecting would cut off a healthy bridge whenever its node dumps a contact list.
 - **Auth lockout.** 10 failures from one IP within 10 min lock that IP out for 15 min (HTTP 429) on every relay route. Behind the proxy, set `meshRelay.clientIpHeader` to `X-Forwarded-For`. The relay image sets this by default. The relay uses the rightmost entry, which is the one the proxy appended. Without this setting, every client looks like the proxy and one bad bridge would lock everyone out.
 - **Payload debug.** `meshRelay.debugPayloadGateways` logs frames as hex at debug level for the gateways listed. It's off by default, and the relay logs a warning at startup for each gateway listed.
-- **Public status.** `GET /mesh/relay/api/status` needs no token and feeds the public site's `/relay` page. For each gateway it reports name, whether it's online, node state, whether a session could start now, whether one is in use and by what kind of client (the holder's role, never its name), bridge version and link kind, and last seen. It never includes pubkeys, node names, notes, lease holder names, the bridge's OS, or link detail. Gateway names are public through it, so choose names that don't pinpoint a house.
+- **Public status.** `GET /mesh/relay/api/status` needs no token and feeds the public site's `/relay` page. For each gateway it reports name, whether it's online, node state, whether a session could start now, whether one is in use and by what kind of client (never its name: a person's session, an admin's or a host's, shows as `operator` and an automated one as `agent`, so the page never says the host is on their own node), bridge version and link kind, and last seen. It never includes pubkeys, node names, notes, lease holder names, the bridge's OS, or link detail. Gateway names are public through it, so choose names that don't pinpoint a house.
 - **Metrics.** `GET /mesh/relay/api/metrics` returns JSON counters, and the relay logs a `relay metrics` line every minute with per-minute rates.
 
 ### Deployment requirements

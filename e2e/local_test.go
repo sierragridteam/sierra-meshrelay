@@ -196,7 +196,7 @@ func connected(d gatewayDetail) bool {
 func TestLocalFullChain(t *testing.T) {
 	lr := startRelay(t)
 	tok := lr.createGateway("cabin")
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	node := startNode(t, "Cabin Node")
 	startBridge(t, lr, "cabin", tok, node)
 
@@ -276,7 +276,7 @@ func TestLocalFullChain(t *testing.T) {
 func TestLocalPubkeyPinning(t *testing.T) {
 	lr := startRelay(t)
 	tok := lr.createGateway("cabin")
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	first := startNode(t, "Original")
 	_, stop := startBridge(t, lr, "cabin", tok, first)
 	lr.waitGateway("cabin", "first node pinned", connected)
@@ -315,7 +315,7 @@ func TestLocalPubkeyPinning(t *testing.T) {
 func TestLocalChangeNode(t *testing.T) {
 	lr := startRelay(t)
 	tok := lr.createGateway("cabin")
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	first := startNode(t, "Original")
 	_, stop := startBridge(t, lr, "cabin", tok, first)
 	lr.waitGateway("cabin", "first node pinned", connected)
@@ -351,13 +351,21 @@ func TestLocalChangeNode(t *testing.T) {
 	}
 	c.Close()
 
-	_, events, err := adminClient(lr).Logs(ctx, "cabin", 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Events are written off the request path: wait for it.
 	want := first.PubkeyHex()[:12] + "… → " + replacement.PubkeyHex()[:12] + "… by the host"
-	if !slices.ContainsFunc(events, func(e admin.GatewayEvent) bool { return e.Kind == "node_changed" && e.Detail == want }) {
-		t.Fatalf("no node_changed %q event: %+v", want, events)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, events, err := adminClient(lr).Logs(ctx, "cabin", 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(events, func(e admin.GatewayEvent) bool { return e.Kind == "node_changed" && e.Detail == want }) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no node_changed %q event: %+v", want, events)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -366,12 +374,46 @@ func isStatus(err error, status int) bool {
 	return errors.As(err, &ae) && ae.Status == status
 }
 
+// TestLocalHostToken: a host token opens its own gateway through the client
+// library connect uses, and another gateway is refused with a reason
+// connect shows as it is.
+func TestLocalHostToken(t *testing.T) {
+	lr := startRelay(t)
+	tok := lr.createGateway("cabin")
+	lr.createGateway("ridge")
+	startBridge(t, lr, "cabin", tok, startNode(t, "Cabin Node"))
+	lr.waitGateway("cabin", "ready", connected)
+
+	var issued struct {
+		Token string `json:"token"`
+	}
+	if code := lr.api("POST", "/clients", map[string]any{"role": "host", "gateway": "cabin", "label": "jay"}, &issued); code != 200 {
+		t.Fatalf("host token: HTTP %d", code)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := relayclient.Dial(ctx, lr.wsBase(), "cabin", issued.Token, false)
+	if err != nil {
+		t.Fatalf("own gateway: %v", err)
+	}
+	c.Close()
+
+	_, err = relayclient.Dial(ctx, lr.wsBase(), "ridge", issued.Token, false)
+	var he *relayclient.HTTPError
+	if !errors.As(err, &he) || he.Status != 403 {
+		t.Fatalf("another gateway: %v", err)
+	}
+	if got := connect.Explain(err); got != "This token is for gateway cabin, not ridge." {
+		t.Errorf("Explain = %q", got)
+	}
+}
+
 // TestLocalRelinkAndBusy: an admin relink reaches the node through the bridge;
 // a second client is refused while the first holds the lease.
 func TestLocalRelinkAndBusy(t *testing.T) {
 	lr := startRelay(t)
 	tok := lr.createGateway("cabin")
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	node := startNode(t, "Cabin Node")
 	b, _ := startBridge(t, lr, "cabin", tok, node)
 	lr.waitGateway("cabin", "ready", connected)
@@ -409,7 +451,7 @@ func TestLocalRelinkAndBusy(t *testing.T) {
 func TestLocalBridgeDropEndsLease(t *testing.T) {
 	lr := startRelay(t)
 	tok := lr.createGateway("cabin")
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	node := startNode(t, "Cabin Node")
 	_, stop := startBridge(t, lr, "cabin", tok, node)
 	lr.waitGateway("cabin", "ready", connected)

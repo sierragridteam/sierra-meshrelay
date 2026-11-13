@@ -100,17 +100,27 @@ func newHarness(t *testing.T, cfg Config) *harness {
 // every test also covers prefab's middleware (gzip, security headers) in front
 // of the websocket upgrade.
 func newHarnessAt(t *testing.T, cfg Config, dbPath string) *harness {
+	return newHarnessWith(t, cfg, dbPath, nil)
+}
+
+// newHarnessWith is newHarnessAt with the relay's store wrapped (to inject
+// faults); h.store stays the real one.
+func newHarnessWith(t *testing.T, cfg Config, dbPath string, wrap func(Storage) Storage) *harness {
 	t.Helper()
 	logs := &syncBuffer{}
 	ctx := logging.With(context.Background(), newBufLogger(logs))
 	st, err := OpenStore(ctx, dbPath, time.Second)
 	require.NoError(t, err)
+	var relayStore Storage = st
+	if wrap != nil {
+		relayStore = wrap(st)
+	}
 	admin, _ := MintToken(ClientTokenPrefix)
 	cfg.BootstrapAdmins = map[string]string{"root": TokenHash(admin)}
 	if cfg.TickInterval == 0 {
 		cfg.TickInterval = 20 * time.Millisecond
 	}
-	r := New(ctx, cfg, st)
+	r := New(ctx, cfg, relayStore)
 	port := freePort(t)
 	server := prefab.New(prefab.WithContext(ctx), prefab.WithHost("127.0.0.1"), prefab.WithPort(port),
 		prefab.WithPlugin(r))
@@ -184,6 +194,26 @@ func (h *harness) createClient(name string, role Role) string {
 	code, out := h.api("POST", "/clients", h.admin, map[string]any{"name": name, "role": role})
 	require.Equal(h.t, http.StatusOK, code, out)
 	return out["token"].(string)
+}
+
+// hostToken issues a host token for gateway, named <gateway>.<label>.
+func (h *harness) hostToken(gateway, label string) string {
+	h.t.Helper()
+	code, out := h.api("POST", "/clients", h.admin, map[string]any{"role": "host", "gateway": gateway, "label": label})
+	require.Equal(h.t, http.StatusOK, code, out)
+	tok := out["token"].(string)
+	require.True(h.t, strings.HasPrefix(tok, HostTokenPrefix))
+	return tok
+}
+
+// legacyClient stores a token with a role that is no longer issued, as a
+// relay from before host tokens left them.
+func (h *harness) legacyClient(name string, role Role) string {
+	h.t.Helper()
+	tok, err := MintToken(ClientTokenPrefix)
+	require.NoError(h.t, err)
+	require.NoError(h.t, h.store.CreateClient(ClientRecord{Name: name, Role: role, CreatedAt: time.Now()}, TokenHash(tok)))
+	return tok
 }
 
 func (h *harness) wsURL(path string) string {
@@ -463,7 +493,7 @@ func TestBridgeReplaced(t *testing.T) {
 	assert.Equal(t, true, st["online"])
 
 	// The new session carries traffic.
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 	second.expect("attach")
@@ -474,7 +504,7 @@ func TestClientLeaseEndToEnd(t *testing.T) {
 	h := newHarness(t, Config{})
 	tok := h.createGateway("gw-a")
 	b := h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 
 	c := h.client("gw-a", op, "")
 	lease := expectControl(t, c, "lease")
@@ -490,7 +520,7 @@ func TestClientLeaseEndToEnd(t *testing.T) {
 	assert.Equal(t, []byte{0x80, 0x01, 0x03, 'h', 'i'}, frame, "frames pass through unchanged both ways")
 
 	// Second client: busy.
-	agent := h.createClient("elmer", RoleAgent)
+	agent := h.createClient("elmer", RoleAdmin)
 	c2 := h.client("gw-a", agent, "")
 	m := expectControl(t, c2, "error")
 	assert.Equal(t, "busy", m["code"])
@@ -513,7 +543,7 @@ func TestClientLeaseEndToEnd(t *testing.T) {
 func TestClientGatewayOfflineAndUnknown(t *testing.T) {
 	h := newHarness(t, Config{})
 	h.createGateway("gw-a")
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 
 	c := h.client("gw-a", op, "")
 	st := expectControl(t, c, "gateway_status")
@@ -538,7 +568,7 @@ func TestLeaseIdleTimeout(t *testing.T) {
 	h := newHarness(t, Config{LeaseIdleTimeout: 300 * time.Millisecond})
 	tok := h.createGateway("gw-a")
 	b := h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 
@@ -554,7 +584,7 @@ func TestLeaseExpiryWarningAndRenew(t *testing.T) {
 		MaxLeaseTotal: 1500 * time.Millisecond})
 	tok := h.createGateway("gw-a")
 	h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	lease := expectControl(t, c, "lease")
 
@@ -586,7 +616,7 @@ func TestAdminPreempt(t *testing.T) {
 	h := newHarness(t, Config{})
 	tok := h.createGateway("gw-a")
 	b := h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.hostToken("gw-a", "op")
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 	b.expect("attach")
@@ -621,7 +651,7 @@ func TestPubkeyMismatch(t *testing.T) {
 	assert.Equal(t, pubkeyA, st["pinned_pubkey"])
 	assert.Equal(t, pubkeyB, st["mismatch_pubkey"])
 
-	op := h.createClient("op", RoleOperator)
+	op := h.hostToken("gw-a", "op")
 	c := h.client("gw-a", op, "")
 	gs := expectControl(t, c, "gateway_status")
 	assert.Equal(t, NodeMismatch, gs["node"].(map[string]any)["state"])
@@ -630,7 +660,7 @@ func TestPubkeyMismatch(t *testing.T) {
 	expectClosed(t, c, CloseNormal)
 
 	code, _ := h.api("POST", "/gateways/gw-a/accept-pubkey", op, nil)
-	assert.Equal(t, http.StatusForbidden, code, "operators cannot accept a pubkey")
+	assert.Equal(t, http.StatusForbidden, code, "a host token cannot accept a pubkey")
 	code, out := h.api("POST", "/gateways/gw-a/accept-pubkey", h.admin, nil)
 	require.Equal(t, http.StatusOK, code, out)
 	assert.Equal(t, pubkeyB, out["gateway"].(map[string]any)["pinned_pubkey"])
@@ -643,7 +673,7 @@ func TestPubkeyChangeMidLeaseEndsIt(t *testing.T) {
 	h := newHarness(t, Config{})
 	tok := h.createGateway("gw-a")
 	b := h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 
@@ -657,7 +687,7 @@ func TestGatewayOfflineEndsLease(t *testing.T) {
 	h := newHarness(t, Config{})
 	tok := h.createGateway("gw-a")
 	b := h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 
@@ -704,7 +734,7 @@ func TestRevokeClientEndsLease(t *testing.T) {
 	h := newHarness(t, Config{})
 	tok := h.createGateway("gw-a")
 	h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 
@@ -718,25 +748,44 @@ func TestRevokeClientEndsLease(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
+// TestAPIRoles: every API route needs an admin token. A host token opens
+// its gateway and nothing else, and the retired roles are refused.
 func TestAPIRoles(t *testing.T) {
 	h := newHarness(t, Config{})
-	op := h.createClient("op", RoleOperator)
-	agent := h.createClient("elmer", RoleAgent)
 	tok := h.createGateway("gw-a")
+	op := h.legacyClient("op", RoleOperator)
+	agent := h.legacyClient("elmer", RoleAgent)
+	host := h.hostToken("gw-a", "jay")
+	admin := h.createClient("ops-laptop", RoleAdmin)
 
 	code, _ := h.api("GET", "/gateways", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, code)
 	code, _ = h.api("GET", "/gateways", tok, nil)
 	assert.Equal(t, http.StatusUnauthorized, code, "a bridge token is not an API credential")
 	for _, who := range []string{op, agent} {
-		code, _ = h.api("GET", "/gateways", who, nil)
-		assert.Equal(t, http.StatusOK, code, "view status")
+		for _, path := range []string{"/gateways", "/gateways/gw-a", "/leases", "/metrics"} {
+			code, out := h.api("GET", path, who, nil)
+			assert.Equal(t, http.StatusForbidden, code, path)
+			assert.Contains(t, out["message"], "no longer work", path)
+		}
 		code, _ = h.api("POST", "/gateways", who, map[string]any{"name": "gw-x"})
 		assert.Equal(t, http.StatusForbidden, code)
-		code, _ = h.api("POST", "/clients", who, map[string]any{"name": "x", "role": "admin"})
-		assert.Equal(t, http.StatusForbidden, code)
 	}
+	for _, path := range []string{"/gateways", "/gateways/gw-a", "/gateways/gw-a/logs", "/leases", "/metrics", "/clients"} {
+		code, out := h.api("GET", path, host, nil)
+		assert.Equal(t, http.StatusForbidden, code, path)
+		assert.Contains(t, out["message"], "can't use the API", path)
+	}
+	code, _ = h.api("POST", "/clients", host, map[string]any{"role": "host", "gateway": "gw-a", "label": "more"})
+	assert.Equal(t, http.StatusForbidden, code, "a host can't issue tokens through the admin API")
+	code, _ = h.api("GET", "/gateways", admin, nil)
+	assert.Equal(t, http.StatusOK, code, "an issued admin token")
 
+	for _, role := range []string{"operator", "agent", "owner"} {
+		code, out := h.api("POST", "/clients", h.admin, map[string]any{"name": "x", "role": role})
+		assert.Equal(t, http.StatusBadRequest, code, role)
+		assert.Contains(t, out["message"], "want admin or host", role)
+	}
 	code, _ = h.api("POST", "/gateways", h.admin, map[string]any{"name": "api"})
 	assert.Equal(t, http.StatusBadRequest, code, "reserved name")
 	code, _ = h.api("POST", "/gateways", h.admin, map[string]any{"name": "gw-a"})
@@ -762,7 +811,7 @@ func TestFrameLimits(t *testing.T) {
 	h := newHarness(t, Config{FrameRate: 50, FrameBurst: 5})
 	tok := h.createGateway("gw-a")
 	h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
@@ -806,7 +855,7 @@ func TestRestart(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "relay.db")
 	h := newHarnessAt(t, Config{}, db)
 	tok := h.createGateway("gw-a")
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	h.bridge("gw-a", tok, pubkeyA)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
@@ -848,7 +897,7 @@ func TestNoPayloadInLogs(t *testing.T) {
 	h := newHarness(t, Config{})
 	tok := h.createGateway("gw-a")
 	h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("op", RoleOperator)
+	op := h.createClient("op", RoleAdmin)
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 
@@ -876,7 +925,7 @@ func TestPublicStatus(t *testing.T) {
 	tok := out["bridge_token"].(string)
 	h.createGateway("gw-b")
 	b := h.bridge("gw-a", tok, pubkeyA)
-	op := h.createClient("casey-holder", RoleOperator)
+	op := h.hostToken("gw-a", "casey")
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 
@@ -889,7 +938,7 @@ func TestPublicStatus(t *testing.T) {
 	assert.Equal(t, true, a["online"])
 	assert.Equal(t, true, a["ready"])
 	assert.Equal(t, true, a["in_use"])
-	assert.Equal(t, string(RoleOperator), a["in_use_role"], "the holder's role, never its name")
+	assert.Equal(t, string(RoleOperator), a["in_use_role"], "a host lease reads as a person's, never the host's, and never its name")
 	assert.Nil(t, bb["in_use_role"])
 	assert.Equal(t, NodeConnected, a["node_state"])
 	assert.Equal(t, "0.3.1", a["agent_version"])
@@ -992,8 +1041,8 @@ func TestInProcessHolderSendAndPreempt(t *testing.T) {
 	}
 	assert.ErrorIs(t, h.relay.Send(l, make([]byte, MaxFrameBytes+1)), ErrFrameTooLarge)
 
-	// A normal-priority client preempts the background lease.
-	op := h.createClient("op", RoleOperator)
+	// A person (here the host, with their token) preempts the background lease.
+	op := h.hostToken("gw-a", "op")
 	c := h.client("gw-a", op, "")
 	expectControl(t, c, "lease")
 	select {

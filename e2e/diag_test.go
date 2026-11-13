@@ -64,11 +64,16 @@ func TestBridgeLogsReachAdmins(t *testing.T) {
 		t.Fatalf("redaction:\n%s", text)
 	}
 
-	// Viewers who aren't admins can't read them.
-	op := lr.createClient("viewer", "operator")
+	// Only admins can read them: not even the gateway's host token.
+	var issued struct {
+		Token string `json:"token"`
+	}
+	if code := lr.api("POST", "/clients", map[string]any{"role": "host", "gateway": "cabin", "label": "jay"}, &issued); code != 200 {
+		t.Fatalf("host token: HTTP %d", code)
+	}
 	viewer := *ac
-	viewer.Token = op
+	viewer.Token = issued.Token
 	if _, _, err := viewer.Logs(context.Background(), "cabin", 0, 10); err == nil {
-		t.Fatal("an operator read bridge logs")
+		t.Fatal("a host token read bridge logs")
 	}
 }

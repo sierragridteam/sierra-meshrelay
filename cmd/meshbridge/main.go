@@ -260,14 +260,14 @@ const clientTokenEnv = "MESHBRIDGE_CLIENT_TOKEN"
 
 func cmdConnect(args []string) error {
 	fs := flag.NewFlagSet("connect", flag.ExitOnError)
-	token := fs.String("token", "", "client token (smc_…); default $"+clientTokenEnv)
+	token := fs.String("token", "", "access token (smh_… for one gateway, or an admin's smc_…); default $"+clientTokenEnv)
 	listen := fs.String("listen", "127.0.0.1:5000", "local address for companion apps")
 	relay := fs.String("relay", config.DefaultRelay, "relay base URL")
 	preempt := fs.Bool("preempt", false, "take the gateway from its current user (admins only)")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: meshbridge connect <gateway> [flags]\n\n"+
 			"Opens a local TCP port that MeshCore apps and meshcore-cli can use as if the\n"+
-			"gateway's node were on this network. Needs a client token from a SIERRA admin,\n"+
+			"gateway's node were on this network. Needs an access token from a SIERRA admin,\n"+
 			"in $%s (safer than -token, which lands in shell history).\n\n", clientTokenEnv)
 		fs.PrintDefaults()
 	}
@@ -288,7 +288,7 @@ func cmdConnect(args []string) error {
 		*token = os.Getenv(clientTokenEnv)
 	}
 	if *token == "" {
-		return fmt.Errorf("connect needs a client token (smc_…) from a SIERRA admin: set $%s (or pass -token)", clientTokenEnv)
+		return fmt.Errorf("connect needs an access token for the gateway (smh_…) from a SIERRA admin: set $%s (or pass -token)", clientTokenEnv)
 	}
 	host, _, err := net.SplitHostPort(*listen)
 	if err != nil {

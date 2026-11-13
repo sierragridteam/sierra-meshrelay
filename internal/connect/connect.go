@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -236,9 +237,17 @@ func Explain(err error) string {
 	if errors.As(err, &he) {
 		switch he.Status {
 		case 401:
+			if strings.Contains(he.Body, "expired") {
+				return sentence(he.Body)
+			}
 			return "The relay didn't accept your token."
 		case 403:
-			return "Your token isn't allowed to do that (preempt needs an admin token)."
+			// Why: a host token for another gateway, a retired role, or a
+			// preempt without an admin token.
+			if he.Body != "" {
+				return sentence(he.Body)
+			}
+			return "Your token isn't allowed to do that."
 		case 404:
 			return "No such gateway."
 		case 429:
@@ -249,6 +258,19 @@ func Explain(err error) string {
 		return "Couldn't reach the relay."
 	}
 	return fmt.Sprintf("Couldn't connect: %v", err)
+}
+
+// sentence capitalizes s and ends it with a full stop.
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	s = strings.ToUpper(s[:1]) + s[1:]
+	if !strings.HasSuffix(s, ".") {
+		s += "."
+	}
+	return s
 }
 
 // CodeText turns a relay error code into a plain sentence.

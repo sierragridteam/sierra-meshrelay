@@ -26,7 +26,7 @@ import (
 func TestLocalPause(t *testing.T) {
 	lr := startRelay(t)
 	tok := lr.createGateway("cabin")
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	node := startNode(t, "Cabin Node")
 	b, _ := startBridge(t, lr, "cabin", tok, node)
 	lr.waitGateway("cabin", "ready", connected)
@@ -131,7 +131,7 @@ func (lr *localRelay) approveCode(code string, body map[string]any) int {
 
 func TestLocalPairingDeviceCode(t *testing.T) {
 	lr := startRelay(t)
-	op := lr.createClient("tester", "operator")
+	op := lr.createClient("tester", "admin")
 	node := startNode(t, "Paired Node")
 	pc := pairClient(lr)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

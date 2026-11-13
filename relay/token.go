@@ -17,6 +17,11 @@ import (
 const (
 	BridgeTokenPrefix = "smb_"
 	ClientTokenPrefix = "smc_"
+	// HostTokenPrefix marks a host token, scoped to one gateway. It differs
+	// from ClientTokenPrefix so a relay from before host tokens (v0.14.0 and
+	// earlier) rejects them outright, instead of letting one open every
+	// gateway: a rollback fails closed.
+	HostTokenPrefix = "smh_"
 )
 
 // Role is a client token's authority. See docs/relay.md "Roles".
@@ -24,22 +29,39 @@ type Role string
 
 const (
 	// RoleAdmin can do everything: create gateways, issue and revoke tokens,
-	// accept pubkey changes, preempt leases.
+	// accept pubkey changes, preempt leases, use any gateway.
 	RoleAdmin Role = "admin"
-	// RoleOperator takes leases on any gateway and views status.
+	// RoleHost uses one gateway (ClientRecord.Gateway), through a lease and
+	// nothing else: no API. Its tokens start with HostTokenPrefix.
+	RoleHost Role = "host"
+	// RoleOperator and RoleAgent are retired for tokens: a token with
+	// either is refused. In-process callers still lease with them (the
+	// relay's repeater checks, sierra-data's pollers), which pass no token.
 	RoleOperator Role = "operator"
-	// RoleAgent takes leases (Elmer, meshcore-mcp, future pollers) and views
-	// status.
-	RoleAgent Role = "agent"
+	RoleAgent    Role = "agent"
 )
 
-// ParseRole validates a role name.
+// ParseRole validates the role of a token to issue: admin or host.
 func ParseRole(s string) (Role, error) {
 	switch r := Role(strings.ToLower(strings.TrimSpace(s))); r {
-	case RoleAdmin, RoleOperator, RoleAgent:
+	case RoleAdmin, RoleHost:
 		return r, nil
 	}
-	return "", fmt.Errorf("unknown role %q (want admin, operator or agent)", s)
+	return "", fmt.Errorf("unknown role %q (want admin or host)", s)
+}
+
+// hostLabelPattern is the label part of a host client's name.
+var hostLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,21}$`)
+
+// HostClientName names a host token: <gateway>.<label>. The relay builds it,
+// so a host token can never take a name that reads as an admin's in the
+// audit trail, and the gateway it opens is plain from its name.
+func HostClientName(gateway, label string) (string, error) {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if !hostLabelPattern.MatchString(label) {
+		return "", fmt.Errorf("label %q: use 1-22 lowercase letters, digits and dashes, like jay-laptop", label)
+	}
+	return gateway + "." + label, nil
 }
 
 // gatewayNamePattern is the protocol's gateway name rule.

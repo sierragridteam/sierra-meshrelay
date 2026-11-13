@@ -66,8 +66,8 @@ Nothing ever connects in to a host's house. Nothing on the relay gives unauthent
 
 - Both bridge and client send `Authorization: Bearer <token>` on the WebSocket upgrade request.
 - Bridge tokens are per gateway. The relay rejects a bridge whose token doesn't belong to `<gateway>`.
-- Client tokens are per person or per agent. They carry a role (see relay spec).
-- Tokens are opaque: 32 random bytes, base64url, prefixed `smb_` (bridge) or `smc_` (client) so they're recognizable if leaked.
+- Client tokens are per person or per device. They carry a role, `admin` or `host` (see docs/relay.md "Roles"). A host token opens one gateway.
+- Tokens are opaque: 32 random bytes, base64url, prefixed `smb_` (bridge), `smc_` (admin client) or `smh_` (host client) so they're recognizable if leaked.
 - The relay rejects the upgrade with HTTP 401 for a bad token, 404 for an unknown gateway, and 426 for an unsupported subprotocol.
 
 ### Client tickets (for browsers)
@@ -491,7 +491,7 @@ MESHCORE_RELAY_GATEWAY=avery-ridge
 MESHCORE_RELAY_TOKEN=smc_…
 ```
 
-- Use an `agent`-role client token.
+- Use a host token for that gateway (`smh_…`). The `agent` role is retired for tokens; outside software has no token kind of its own yet.
 - Show lease state in the MCP server's status output. That way an agent can tell "someone else has this gateway" apart from "the gateway is down."
 
 ## Testing

@@ -3,8 +3,10 @@ package relay
 import (
 	"encoding/json"
 	stderrors "errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dpup/prefab"
@@ -53,9 +55,9 @@ func (r *Relay) ServerOptions() []prefab.ServerOption {
 		// The one unauthenticated API route: a deliberately minimal view for the
 		// public site's /relay page. See apiPublicStatus for what it withholds.
 		prefab.WithJSONHandler("GET "+api+"/status", j(r.apiPublicStatus)),
-		prefab.WithJSONHandler("GET "+api+"/gateways", j(r.viewer(r.apiListGateways))),
+		prefab.WithJSONHandler("GET "+api+"/gateways", j(r.admin(r.apiListGateways))),
 		prefab.WithJSONHandler("POST "+api+"/gateways", j(r.admin(r.apiCreateGateway))),
-		prefab.WithJSONHandler("GET "+api+"/gateways/{name}", j(r.viewer(r.apiGetGateway))),
+		prefab.WithJSONHandler("GET "+api+"/gateways/{name}", j(r.admin(r.apiGetGateway))),
 		prefab.WithJSONHandler("DELETE "+api+"/gateways/{name}", j(r.admin(r.apiDeleteGateway))),
 		prefab.WithJSONHandler("GET "+api+"/gateways/{name}/logs", j(r.admin(r.apiGatewayLogs))),
 		prefab.WithJSONHandler("POST "+api+"/gateways/{name}/rotate-token", j(r.admin(r.apiRotateToken))),
@@ -64,8 +66,9 @@ func (r *Relay) ServerOptions() []prefab.ServerOption {
 		prefab.WithJSONHandler("GET "+api+"/gateways/{name}/repeaters/nearby", j(r.admin(r.apiNearbyRepeaters))),
 		prefab.WithJSONHandler("GET "+api+"/clients", j(r.admin(r.apiListClients))),
 		prefab.WithJSONHandler("POST "+api+"/clients", j(r.admin(r.apiCreateClient))),
+		prefab.WithJSONHandler("PATCH "+api+"/clients/{name}", j(r.admin(r.apiUpdateClient))),
 		prefab.WithJSONHandler("DELETE "+api+"/clients/{name}", j(r.admin(r.apiDeleteClient))),
-		prefab.WithJSONHandler("GET "+api+"/leases", j(r.viewer(r.apiLeases))),
+		prefab.WithJSONHandler("GET "+api+"/leases", j(r.admin(r.apiLeases))),
 
 		// Pairing. The two bridge endpoints have no auth (a bridge being
 		// paired has no token yet) and are rate-limited instead; see pairing.go.
@@ -77,7 +80,7 @@ func (r *Relay) ServerOptions() []prefab.ServerOption {
 		prefab.WithJSONHandler("GET "+api+"/invites", j(r.admin(r.apiListInvites))),
 		prefab.WithJSONHandler("POST "+api+"/invites", j(r.admin(r.apiCreateInvite))),
 		prefab.WithJSONHandler("DELETE "+api+"/invites/{id}", j(r.admin(r.apiRevokeInvite))),
-		prefab.WithJSONHandler("GET "+api+"/metrics", j(r.viewer(r.apiMetrics))),
+		prefab.WithJSONHandler("GET "+api+"/metrics", j(r.admin(r.apiMetrics))),
 		prefab.WithJSONHandler("GET "+api+"/bridge-update", j(r.admin(r.apiGetBridgeUpdate))),
 		prefab.WithJSONHandler("PUT "+api+"/bridge-update", j(r.admin(r.apiSetBridgeUpdate))),
 
@@ -121,14 +124,10 @@ func toSiteStatus(w http.ResponseWriter, req *http.Request) {
 // apiHandler is an admin API handler with the authenticated caller.
 type apiHandler func(req *http.Request, who *ClientRecord) (any, error)
 
-// viewer admits any client role: the roles table gives admin, operator and
-// agent alike "view status".
-func (r *Relay) viewer(h apiHandler) prefab.JSONHandler { return r.authed(h, false) }
-
-// admin admits only admins: everything that changes state.
-func (r *Relay) admin(h apiHandler) prefab.JSONHandler { return r.authed(h, true) }
-
-func (r *Relay) authed(h apiHandler, adminOnly bool) prefab.JSONHandler {
+// admin admits only admin tokens. Every API route is admin-only: a host
+// token opens its gateway through a lease and nothing else, and the
+// operator and agent roles are retired.
+func (r *Relay) admin(h apiHandler) prefab.JSONHandler {
 	return func(req *http.Request) (any, error) {
 		ip := r.clientIP(req)
 		if r.lockout.isLocked(ip, r.now()) {
@@ -141,11 +140,19 @@ func (r *Relay) authed(h apiHandler, adminOnly bool) prefab.JSONHandler {
 			logging.Infow(r.ctx, "auth failed", "kind", "api", "ip", ip, "path", req.URL.Path)
 			return nil, errors.NewC("a client token is required", codes.Unauthenticated)
 		}
+		if stderrors.Is(err, ErrTokenExpired) {
+			return nil, errors.NewC("this token has expired; ask for a new one", codes.Unauthenticated)
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, 0)
 		}
-		if adminOnly && who.Role != RoleAdmin {
-			return nil, errors.NewC("admin role required", codes.PermissionDenied)
+		switch who.Role {
+		case RoleAdmin:
+		case RoleHost:
+			return nil, errors.NewC("a host token opens its gateway (meshbridge connect) and can't use the API",
+				codes.PermissionDenied)
+		default:
+			return nil, errors.NewC(retiredRole(who.Role), codes.PermissionDenied)
 		}
 		if req.Method != http.MethodGet {
 			logging.Infow(r.ctx, "admin action", "client", who.Name, "method", req.Method, "path", req.URL.Path)
@@ -294,7 +301,8 @@ type PublicGateway struct {
 	// Ready: a lease could be granted on this gateway's node.
 	Ready bool `json:"ready"`
 	// InUse: someone holds the lease. Never who: InUseRole says only what
-	// kind of client (admin | operator | agent), so someone waiting can tell an
+	// kind of client (operator: a person, admin or host; agent: automated; see
+	// publicRole), so someone waiting can tell an
 	// automated session from a person's. A client's name would publish when a
 	// person is on which gateway, and polling would make a history of it.
 	InUse          bool       `json:"in_use"`
@@ -342,7 +350,7 @@ func (r *Relay) apiPublicStatus(_ *http.Request) (any, error) {
 				}
 			}
 			if g.lease != nil {
-				pg.InUse, pg.InUseRole = true, g.lease.Role
+				pg.InUse, pg.InUseRole = true, publicRole(g.lease.Role)
 			}
 		}
 		out = append(out, pg)
@@ -418,6 +426,14 @@ func (r *Relay) apiRotateToken(req *http.Request, who *ClientRecord) (any, error
 	if err != nil {
 		return nil, storeErr(err, "unknown gateway")
 	}
+	// The bridge token may have leaked, and a host issues access tokens
+	// with it: theirs go too. First, so that if it fails nothing has
+	// changed yet and the admin can retry.
+	revoked, err := r.revokeHostTokens(rec.Name, "bridge token rotated by "+who.Name)
+	if err != nil {
+		return nil, errors.Wrap(fmt.Errorf("revoking the gateway's access tokens (%d revoked; token not rotated): %w",
+			revoked, err), 0)
+	}
 	tok, err := MintToken(BridgeTokenPrefix)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
@@ -427,7 +443,8 @@ func (r *Relay) apiRotateToken(req *http.Request, who *ClientRecord) (any, error
 	}
 	closed := r.closeBridge(rec.Name, CloseBadToken, "token rotated")
 	r.event(rec.Name, "token_rotated", who.Name)
-	return map[string]any{"bridge_token": tok, "closed_session": closed, "note": oneTimeNote}, nil
+	return map[string]any{"bridge_token": tok, "closed_session": closed, "access_tokens_revoked": revoked,
+		"note": oneTimeNote}, nil
 }
 
 func (r *Relay) apiAcceptPubkey(req *http.Request, who *ClientRecord) (any, error) {
@@ -525,8 +542,13 @@ func (r *Relay) apiRelink(req *http.Request, who *ClientRecord) (any, error) {
 
 func (r *Relay) apiDeleteGateway(req *http.Request, who *ClientRecord) (any, error) {
 	name := req.PathValue("name")
+	scoped, _ := r.HostTokens(name)
+	// The store deletes the gateway's host tokens with it.
 	if err := r.store.DeleteGateway(name); err != nil {
 		return nil, storeErr(err, "unknown gateway")
+	}
+	for _, c := range scoped {
+		r.EndLeasesFor(c.Name, ReasonRevoked)
 	}
 	// The token is gone from the store, so the bridge cannot reconnect; end the
 	// live session and any lease now.
@@ -560,32 +582,92 @@ func (r *Relay) apiListClients(_ *http.Request, _ *ClientRecord) (any, error) {
 
 func (r *Relay) apiCreateClient(req *http.Request, who *ClientRecord) (any, error) {
 	var body struct {
-		Name string `json:"name"`
-		Role string `json:"role"`
+		Name    string `json:"name"`
+		Role    string `json:"role"`
+		Gateway string `json:"gateway"`
+		Label   string `json:"label"`
+		Days    int    `json:"expires_in_days"`
+		Note    string `json:"note"`
 	}
 	if err := decodeBody(req, &body); err != nil {
 		return nil, err
-	}
-	if !ValidClientName(body.Name) {
-		return nil, errors.NewC("client name must be a lowercase slug", codes.InvalidArgument)
-	}
-	if _, isBootstrap := r.cfg.BootstrapAdmins[body.Name]; isBootstrap {
-		return nil, errors.NewC("that name is a bootstrap admin", codes.AlreadyExists)
 	}
 	role, err := ParseRole(body.Role)
 	if err != nil {
 		return nil, errors.NewC(err.Error(), codes.InvalidArgument)
 	}
+	if role == RoleHost {
+		if body.Gateway == "" || body.Label == "" || body.Name != "" {
+			return nil, errors.NewC("a host token needs gateway and label (it is named <gateway>.<label>), not name",
+				codes.InvalidArgument)
+		}
+		return r.IssueHostToken(HostTokenRequest{Gateway: body.Gateway, Label: body.Label, Note: body.Note,
+			Days: body.Days, By: who.Name})
+	}
+	if body.Gateway != "" || body.Label != "" {
+		return nil, errors.NewC("an admin token isn't scoped: drop gateway and label", codes.InvalidArgument)
+	}
+	if !ValidClientName(body.Name) || strings.Contains(body.Name, ".") {
+		// No dots: <gateway>.<label> names a host token.
+		return nil, errors.NewC("client name must be a lowercase slug, without dots", codes.InvalidArgument)
+	}
+	if _, isBootstrap := r.cfg.BootstrapAdmins[body.Name]; isBootstrap {
+		return nil, errors.NewC("that name is a bootstrap admin", codes.AlreadyExists)
+	}
+	if body.Days < 0 || body.Days > HostTokenMaxDays {
+		return nil, errors.NewC(fmt.Sprintf("expires_in_days is 0 (never) to %d", HostTokenMaxDays), codes.InvalidArgument)
+	}
 	tok, err := MintToken(ClientTokenPrefix)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
-	if err := r.store.CreateClient(ClientRecord{Name: body.Name, Role: role, CreatedAt: r.now(), CreatedBy: who.Name},
-		TokenHash(tok)); err != nil {
+	rec := ClientRecord{Name: body.Name, Role: role, CreatedAt: r.now(), CreatedBy: who.Name, Note: body.Note}
+	if body.Days > 0 {
+		rec.ExpiresAt = rec.CreatedAt.Add(time.Duration(body.Days) * 24 * time.Hour)
+	}
+	if err := r.store.CreateClient(rec, TokenHash(tok)); err != nil {
 		return nil, storeErr(err, "")
 	}
 	logging.Infow(r.ctx, "client token issued", "client", body.Name, "role", role, "by", who.Name)
-	return map[string]any{"client": body.Name, "role": role, "token": tok, "note": oneTimeNote}, nil
+	return &IssuedToken{Client: body.Name, Role: role, ExpiresAt: rec.ExpiresAt, Token: tok, Note: oneTimeNote}, nil
+}
+
+// apiUpdateClient changes a token's role. Only one change is allowed: an
+// unscoped token from before host tokens (operator, agent) becomes an
+// admin token. A host token keeps its role and gateway (its smh_ prefix
+// says what it is); issue a new one instead.
+func (r *Relay) apiUpdateClient(req *http.Request, who *ClientRecord) (any, error) {
+	name := req.PathValue("name")
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := decodeBody(req, &body); err != nil {
+		return nil, err
+	}
+	if Role(body.Role) != RoleAdmin {
+		return nil, errors.NewC("a token can only be made an admin token; issue a host token instead", codes.InvalidArgument)
+	}
+	cs, err := r.store.Clients()
+	if err != nil {
+		return nil, errors.Wrap(err, 0)
+	}
+	var cur *ClientRecord
+	for i := range cs {
+		if cs[i].Name == name {
+			cur = &cs[i]
+		}
+	}
+	if cur == nil {
+		return nil, errors.NewC("unknown client", codes.NotFound)
+	}
+	if cur.Role == RoleHost {
+		return nil, conflict("a host token can't become an admin token; issue an admin token instead")
+	}
+	if err := r.store.UpdateClient(name, RoleAdmin, ""); err != nil {
+		return nil, storeErr(err, "unknown client")
+	}
+	logging.Infow(r.ctx, "client role changed", "client", name, "from", cur.Role, "to", RoleAdmin, "by", who.Name)
+	return map[string]any{"client": name, "role": RoleAdmin, "was": cur.Role}, nil
 }
 
 func (r *Relay) apiDeleteClient(req *http.Request, who *ClientRecord) (any, error) {
@@ -597,6 +679,7 @@ func (r *Relay) apiDeleteClient(req *http.Request, who *ClientRecord) (any, erro
 		return nil, storeErr(err, "unknown client")
 	}
 	ended := r.EndLeasesFor(name, ReasonRevoked)
+	r.forgetTouch(name)
 	logging.Infow(r.ctx, "client token revoked", "client", name, "by", who.Name, "leases_ended", ended)
 	return map[string]any{"deleted": name, "leases_ended": ended}, nil
 }
