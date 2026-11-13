@@ -32,6 +32,7 @@ func Run(t *testing.T, open Opener) {
 		{"GatewayEvents", testGatewayEvents},
 		{"GatewayEventsCap", testGatewayEventsCap},
 		{"Clients", testClients},
+		{"ScopedClients", testScopedClients},
 		{"Leases", testLeases},
 		{"Invites", testInvites},
 		{"Repeaters", testRepeaters},
@@ -159,8 +160,23 @@ func testDeleteGateway(t *testing.T, st relay.Storage) {
 	require.NoError(t, st.EndLease(relay.LeaseRecord{ID: "l_1", Gateway: "gw", Client: "c", Role: relay.RoleAgent,
 		StartedAt: at(0), EndedAt: &end, EndReason: "client_closed"}))
 
+	// Tokens scoped to the gateway go with it; others stay.
+	require.NoError(t, st.CreateClient(relay.ClientRecord{Name: "gw.laptop", Role: "host", CreatedAt: at(0), Gateway: "gw"}, "hs"))
+	require.NoError(t, st.CreateClient(relay.ClientRecord{Name: "other.laptop", Role: "host", CreatedAt: at(0), Gateway: "other"}, "ho"))
+	require.NoError(t, st.CreateClient(client("admin", relay.RoleAdmin, at(0)), "ha"))
+
 	require.NoError(t, st.DeleteGateway("gw"))
-	_, err := st.Gateway("gw")
+	_, err := st.ClientByToken("hs")
+	assert.ErrorIs(t, err, relay.ErrNotFound, "a scoped token outlived its gateway")
+	_, err = st.ClientByToken("ho")
+	assert.NoError(t, err, "another gateway's token")
+	_, err = st.ClientByToken("ha")
+	assert.NoError(t, err, "an unscoped token")
+	require.NoError(t, st.CreateClient(relay.ClientRecord{Name: "gw.laptop", Role: "host", CreatedAt: at(0), Gateway: "gw"}, "hs"),
+		"the scoped token's name and hash are free again")
+	require.NoError(t, st.DeleteClient("gw.laptop"))
+
+	_, err = st.Gateway("gw")
 	assert.ErrorIs(t, err, relay.ErrNotFound)
 	_, err = st.GatewayByToken("h")
 	assert.ErrorIs(t, err, relay.ErrNotFound)
@@ -216,22 +232,29 @@ func testGatewayEventsCap(t *testing.T, st relay.Storage) {
 	assert.Equal(t, fmt.Sprint(n-relay.MaxEventsPerGateway), evs[len(evs)-1].Detail, "the oldest went")
 }
 
+func client(name string, role relay.Role, created time.Time) relay.ClientRecord {
+	return relay.ClientRecord{Name: name, Role: role, CreatedAt: created}
+}
+
 func testClients(t *testing.T, st relay.Storage) {
 	cs, err := st.Clients()
 	require.NoError(t, err)
 	assert.NotNil(t, cs)
 	assert.Empty(t, cs)
 
-	require.NoError(t, st.CreateClient("zed", relay.RoleOperator, "hz", at(0)))
-	require.NoError(t, st.CreateClient("amy", relay.RoleAdmin, "ha", at(time.Second)))
-	assert.ErrorIs(t, st.CreateClient("amy", relay.RoleAgent, "hx", at(0)), relay.ErrExists)
-	assert.ErrorIs(t, st.CreateClient("bob", relay.RoleAgent, "ha", at(0)), relay.ErrExists)
+	require.NoError(t, st.CreateClient(client("zed", relay.RoleOperator, at(0)), "hz"))
+	require.NoError(t, st.CreateClient(client("amy", relay.RoleAdmin, at(time.Second)), "ha"))
+	assert.ErrorIs(t, st.CreateClient(client("amy", relay.RoleAgent, at(0)), "hx"), relay.ErrExists)
+	assert.ErrorIs(t, st.CreateClient(client("bob", relay.RoleAgent, at(0)), "ha"), relay.ErrExists)
 
 	c, err := st.ClientByToken("ha")
 	require.NoError(t, err)
 	assert.Equal(t, "amy", c.Name)
 	assert.Equal(t, relay.RoleAdmin, c.Role)
 	assert.True(t, c.CreatedAt.Equal(at(time.Second)))
+	assert.Empty(t, c.Gateway, "unscoped")
+	assert.True(t, c.ExpiresAt.IsZero(), "no expiry")
+	assert.True(t, c.LastUsedAt.IsZero(), "never used")
 	_, err = st.ClientByToken("hx")
 	assert.ErrorIs(t, err, relay.ErrNotFound)
 
@@ -245,7 +268,53 @@ func testClients(t *testing.T, st relay.Storage) {
 	_, err = st.ClientByToken("ha")
 	assert.ErrorIs(t, err, relay.ErrNotFound)
 	assert.ErrorIs(t, st.DeleteClient("amy"), relay.ErrNotFound)
-	require.NoError(t, st.CreateClient("amy2", relay.RoleAdmin, "ha", at(0)), "the hash is free again")
+	require.NoError(t, st.CreateClient(client("amy2", relay.RoleAdmin, at(0)), "ha"), "the hash is free again")
+}
+
+// testScopedClients: the fields a host token carries, and changing a
+// client's role and scope.
+func testScopedClients(t *testing.T, st relay.Storage) {
+	host := relay.ClientRecord{Name: "cabin.laptop", Role: "host", CreatedAt: at(0), Gateway: "cabin",
+		ExpiresAt: at(180 * 24 * time.Hour), CreatedBy: "gateway:cabin", Note: "Jay's laptop"}
+	require.NoError(t, st.CreateClient(host, "hh"))
+
+	got, err := st.ClientByToken("hh")
+	require.NoError(t, err)
+	assert.Equal(t, "cabin", got.Gateway)
+	assert.True(t, got.ExpiresAt.Equal(at(180*24*time.Hour)))
+	assert.Equal(t, "gateway:cabin", got.CreatedBy)
+	assert.Equal(t, "Jay's laptop", got.Note)
+	assert.True(t, got.LastUsedAt.IsZero())
+
+	require.NoError(t, st.TouchClient("cabin.laptop", at(time.Hour)))
+	got, err = st.ClientByToken("hh")
+	require.NoError(t, err)
+	assert.True(t, got.LastUsedAt.Equal(at(time.Hour)))
+	assert.ErrorIs(t, st.TouchClient("nobody", at(0)), relay.ErrNotFound)
+
+	// An operator becomes an admin (unscoped), and back to a scoped host.
+	require.NoError(t, st.CreateClient(client("dev", relay.RoleOperator, at(0)), "hd"))
+	require.NoError(t, st.UpdateClient("dev", relay.RoleAdmin, ""))
+	got, err = st.ClientByToken("hd")
+	require.NoError(t, err)
+	assert.Equal(t, relay.RoleAdmin, got.Role)
+	assert.Empty(t, got.Gateway)
+	require.NoError(t, st.UpdateClient("dev", "host", "ridge"))
+	got, err = st.ClientByToken("hd")
+	require.NoError(t, err)
+	assert.Equal(t, relay.Role("host"), got.Role)
+	assert.Equal(t, "ridge", got.Gateway)
+	require.NoError(t, st.UpdateClient("dev", relay.RoleAdmin, ""))
+	got, err = st.ClientByToken("hd")
+	require.NoError(t, err)
+	assert.Empty(t, got.Gateway, "unscoped again")
+	assert.ErrorIs(t, st.UpdateClient("nobody", relay.RoleAdmin, ""), relay.ErrNotFound)
+
+	cs, err := st.Clients()
+	require.NoError(t, err)
+	require.Len(t, cs, 2)
+	assert.Equal(t, "cabin", cs[0].Gateway, "Clients carries the new fields")
+	assert.Equal(t, "Jay's laptop", cs[0].Note)
 }
 
 func testLeases(t *testing.T, st relay.Storage) {

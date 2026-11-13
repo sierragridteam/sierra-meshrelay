@@ -42,8 +42,10 @@ func TestImportFromSQLite(t *testing.T) {
 	require.NoError(t, sq.CreateGateway("cabin", "hash-cabin", "pk-cabin", "a note", now.Add(-48*time.Hour)))
 	require.NoError(t, sq.CreateGateway("ridge", "hash-ridge", "", "", now.Add(-24*time.Hour)))
 	require.NoError(t, sq.RecordHello("cabin", &meshproto.Hello{Type: "hello", Agent: meshproto.Agent{Version: "v0.10.1"}}, now))
-	require.NoError(t, sq.CreateClient("amy", relay.RoleAdmin, "hash-amy", now))
-	require.NoError(t, sq.CreateClient("telemetry-op", relay.RoleOperator, "hash-op", now))
+	require.NoError(t, sq.CreateClient(relay.ClientRecord{Name: "amy", Role: relay.RoleAdmin, CreatedAt: now}, "hash-amy"))
+	require.NoError(t, sq.CreateClient(relay.ClientRecord{Name: "telemetry-op", Role: relay.RoleOperator, CreatedAt: now}, "hash-op"))
+	require.NoError(t, sq.CreateClient(relay.ClientRecord{Name: "gw.laptop", Role: "host", CreatedAt: now, Gateway: "gw",
+		ExpiresAt: now.Add(24 * time.Hour), CreatedBy: "gateway:gw", Note: "n"}, "hash-host"))
 	require.NoError(t, sq.CreateInvite(relay.InviteRecord{ID: "i_1", PassphraseHash: "ph", MaxUses: 3,
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now}))
 	require.NoError(t, sq.UseInvite("i_1", now))

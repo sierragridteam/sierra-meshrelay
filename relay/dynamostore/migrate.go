@@ -52,7 +52,7 @@ func (s *Store) Import(snap *relay.Snapshot) error {
 		add(tokenItem(bridgeTokenSK(g.TokenHash), g.Name))
 	}
 	for _, c := range snap.Clients {
-		add(clientItem(c.Name, c.Role, c.TokenHash, c.CreatedAt))
+		add(clientItem(c.ClientRecord, c.TokenHash))
 		add(tokenItem(clientTokenSK(c.TokenHash), c.Name))
 	}
 	for _, i := range snap.Invites {
@@ -188,7 +188,7 @@ func (s *Store) Verify(snap *relay.Snapshot, secretKey []byte) (VerifyReport, er
 	count("clients", len(snap.Clients), len(cs))
 	for _, c := range snap.Clients {
 		got, err := s.ClientByToken(c.TokenHash)
-		if err != nil || got.Name != c.Name || got.Role != c.Role {
+		if err != nil || got.Name != c.Name || got.Role != c.Role || got.Gateway != c.Gateway || !got.ExpiresAt.Equal(c.ExpiresAt) {
 			problem("client %s: its token does not resolve to it (%v)", c.Name, err)
 		}
 	}

@@ -235,6 +235,10 @@ func (s *Store) DeleteGateway(name string) error {
 	if err != nil {
 		return err
 	}
+	// Tokens first: if a later step fails, no token outlives its gateway.
+	if err := s.deleteScopedClients(name); err != nil {
+		return err
+	}
 	err = s.transact(
 		types.TransactWriteItem{Delete: &types.Delete{TableName: &s.table, Key: key(pkGateway, name),
 			ConditionExpression: aws.String("attribute_exists(pk)")}},
@@ -250,6 +254,27 @@ func (s *Store) DeleteGateway(name string) error {
 		return err
 	}
 	return s.deletePartition(logsPK(name))
+}
+
+// deleteScopedClients deletes the clients scoped to a gateway, with their
+// token pointers. A gateway's name can be used again, and its old tokens
+// must not open the new one.
+func (s *Store) deleteScopedClients(gateway string) error {
+	var names []string
+	if err := s.queryPK(pkClient, func(it item) bool {
+		if getS(it, "gateway") == gateway {
+			names = append(names, getS(it, "sk"))
+		}
+		return true
+	}); err != nil {
+		return err
+	}
+	for _, n := range names {
+		if err := s.DeleteClient(n); err != nil && !errors.Is(err, relay.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }
 
 // RecordHello stores a bridge's hello and marks it seen.
@@ -341,24 +366,41 @@ func (s *Store) GatewayEvents(name string, limit int) ([]relay.GatewayEvent, err
 
 // --- clients -------------------------------------------------------------------
 
-func clientItem(name string, role relay.Role, hash string, created time.Time) item {
-	it := key(pkClient, name)
-	it["role"] = str(string(role))
+func clientItem(c relay.ClientRecord, hash string) item {
+	it := key(pkClient, c.Name)
+	it["role"] = str(string(c.Role))
 	it["tokenHash"] = str(hash)
-	it["createdAt"] = num(ms(created))
+	it["createdAt"] = num(ms(c.CreatedAt))
+	if c.Gateway != "" {
+		it["gateway"] = str(c.Gateway)
+	}
+	if !c.ExpiresAt.IsZero() {
+		it["expiresAt"] = num(ms(c.ExpiresAt))
+	}
+	if !c.LastUsedAt.IsZero() {
+		it["lastUsedAt"] = num(ms(c.LastUsedAt))
+	}
+	if c.CreatedBy != "" {
+		it["createdBy"] = str(c.CreatedBy)
+	}
+	if c.Note != "" {
+		it["note"] = str(c.Note)
+	}
 	return it
 }
 
 func clientFrom(it item) relay.ClientRecord {
-	return relay.ClientRecord{Name: getS(it, "sk"), Role: relay.Role(getS(it, "role")), CreatedAt: fromMS(getN(it, "createdAt"))}
+	return relay.ClientRecord{Name: getS(it, "sk"), Role: relay.Role(getS(it, "role")), CreatedAt: fromMS(getN(it, "createdAt")),
+		Gateway: getS(it, "gateway"), ExpiresAt: fromMS(getN(it, "expiresAt")), LastUsedAt: fromMS(getN(it, "lastUsedAt")),
+		CreatedBy: getS(it, "createdBy"), Note: getS(it, "note")}
 }
 
 // CreateClient inserts a client and its token pointer.
-func (s *Store) CreateClient(name string, role relay.Role, hash string, now time.Time) error {
+func (s *Store) CreateClient(c relay.ClientRecord, hash string) error {
 	if err := s.check(); err != nil {
 		return err
 	}
-	err := s.transact(s.putNew(clientItem(name, role, hash, now)), s.putNew(tokenItem(clientTokenSK(hash), name)))
+	err := s.transact(s.putNew(clientItem(c, hash)), s.putNew(tokenItem(clientTokenSK(hash), c.Name)))
 	if _, ok := txFailed(err); ok {
 		return relay.ErrExists
 	}
@@ -393,6 +435,27 @@ func (s *Store) Clients() ([]relay.ClientRecord, error) {
 	out := []relay.ClientRecord{}
 	err := s.queryPK(pkClient, func(it item) bool { out = append(out, clientFrom(it)); return true })
 	return out, err
+}
+
+// UpdateClient changes a client's role and the gateway it's scoped to.
+func (s *Store) UpdateClient(name string, role relay.Role, gateway string) error {
+	if err := s.check(); err != nil {
+		return err
+	}
+	if gateway == "" {
+		return s.updateExisting(pkClient, name, "SET #r = :r REMOVE #g",
+			map[string]string{"#r": "role", "#g": "gateway"}, item{":r": str(string(role))})
+	}
+	return s.updateExisting(pkClient, name, "SET #r = :r, #g = :g",
+		map[string]string{"#r": "role", "#g": "gateway"}, item{":r": str(string(role)), ":g": str(gateway)})
+}
+
+// TouchClient records that a client's token was used at at.
+func (s *Store) TouchClient(name string, at time.Time) error {
+	if err := s.check(); err != nil {
+		return err
+	}
+	return s.updateExisting(pkClient, name, "SET lastUsedAt = :t", nil, item{":t": num(ms(at))})
 }
 
 // DeleteClient revokes a client token.
