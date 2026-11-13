@@ -351,13 +351,21 @@ func TestLocalChangeNode(t *testing.T) {
 	}
 	c.Close()
 
-	_, events, err := adminClient(lr).Logs(ctx, "cabin", 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Events are written off the request path: wait for it.
 	want := first.PubkeyHex()[:12] + "… → " + replacement.PubkeyHex()[:12] + "… by the host"
-	if !slices.ContainsFunc(events, func(e admin.GatewayEvent) bool { return e.Kind == "node_changed" && e.Detail == want }) {
-		t.Fatalf("no node_changed %q event: %+v", want, events)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, events, err := adminClient(lr).Logs(ctx, "cabin", 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(events, func(e admin.GatewayEvent) bool { return e.Kind == "node_changed" && e.Detail == want }) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no node_changed %q event: %+v", want, events)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
