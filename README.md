@@ -19,10 +19,16 @@ A host needs an always-on computer on the same network as a WiFi or Ethernet Mes
 curl -fsSL https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.sh | sh -s -- --passphrase "maple river quartz otter"
 ```
 
-**Windows 10 or 11**, from an elevated PowerShell (right-click PowerShell, **Run as administrator**), or over SSH as an administrator:
+**Windows 10 or 11**, from an elevated PowerShell (right-click PowerShell, **Run as administrator**):
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase "maple river quartz otter"
+```
+
+Over SSH, connect as an administrator and run the following command. Windows OpenSSH defaults to Command Prompt (`cmd.exe`), so this explicitly starts PowerShell:
+
+```bat
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/sierragridteam/sierra-meshrelay/main/scripts/install.ps1))) -Passphrase 'maple river quartz otter'"
 ```
 
 The installer:
